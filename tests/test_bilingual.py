@@ -1,6 +1,8 @@
 """Bilingual routing, transcription and voice selection without hardware."""
 import atexit
 import os
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -55,6 +57,34 @@ class BilingualTests(unittest.TestCase):
             self.assertEqual(stt.transcribe_audio(np.zeros(16000)), "Cuaca besok")
         self.assertEqual(model.transcribe.call_args.kwargs["language"], "id")
 
+    def test_language_button_overrides_detection_and_speech_recognition(self):
+        from modules import language, speech_to_text
+        self.addCleanup(language.set_language_mode, "auto")
+        model = Mock()
+        model.transcribe.return_value = ([], SimpleNamespace(language="en"))
+        language.set_language_mode("en")
+        self.assertEqual(detect_language("Bagaimana cuaca di Jakarta besok?", fallback="id"), "en")
+        with patch.object(speech_to_text, "initialize", return_value=model):
+            speech_to_text.transcribe_audio(np.zeros(1600))
+        self.assertEqual(model.transcribe.call_args.kwargs["language"], "en")
+        language.set_language_mode("id")
+        self.assertEqual(detect_language("What time is it?"), "id")
+        language.set_language_mode("auto")
+        self.assertEqual(detect_language("What time is it?", fallback="id"), "en")
+        with self.assertRaises(ValueError):
+            language.set_language_mode("fr")
+
+    def test_language_choice_is_remembered_and_defaults_to_indonesian(self):
+        from modules import language
+        self.addCleanup(language.set_language_mode, "auto")
+        with tempfile.TemporaryDirectory() as folder, patch.object(language, "SETTINGS_PATH", Path(folder) / "language.json"):
+            language.restore_language_mode()
+            self.assertEqual(language.language_mode(), "id")
+            language.set_language_mode("en", remember=True)
+            language.set_language_mode("auto")
+            language.restore_language_mode()
+            self.assertEqual(language.language_mode(), "en")
+
     def test_indonesian_voice_uses_native_piper(self):
         native = Mock()
         native.synthesize.return_value = [SimpleNamespace(audio_float_array=np.zeros(100), sample_rate=22050)]
@@ -62,7 +92,7 @@ class BilingualTests(unittest.TestCase):
             audio, rate = tts.synthesize("Halo, aku siap membantu!")
         english.assert_not_called()
         native.synthesize.assert_called_once()
-        self.assertEqual((len(audio), rate), (100, 22050))
+        self.assertEqual((len(audio), rate), (93, 22050))  # Shortened by the 8% pitch raise.
 
     def test_camera_receives_a_supported_visual_instruction(self):
         from modules.vision import vision_prompt
@@ -72,7 +102,7 @@ class BilingualTests(unittest.TestCase):
         self.assertIn("appearance", vision_prompt("Bagaimana penampilanku?"))
         self.assertIn("describe", vision_prompt("Apa yang kamu lihat?"))
 
-    def test_english_voice_stays_kokoro(self):
+    def test_optional_kokoro_handles_english(self):
         english = Mock()
         english.create.return_value = (np.zeros(100), 24000)
         with patch.object(tts, "initialize", return_value=english), patch.object(tts, "_engine_name", "kokoro"), patch.object(tts, "_indonesian_engine") as native:
@@ -84,7 +114,7 @@ class BilingualTests(unittest.TestCase):
         with patch.object(assistant, "_reply_language", "id"):
             self.assertIn("Sekarang pukul", assistant.execute_action({"action": "get_time"}))
             self.assertIn("Sekarang hari", assistant.execute_action({"action": "get_date"}))
-            self.assertIn("Ucapkan Hey In Site", assistant.execute_action({"action": "get_capabilities"}))
+            self.assertIn("Ucapkan Hey Insight", assistant.execute_action({"action": "get_capabilities"}))
 
     def test_weather_uses_indonesian_city_and_tomorrow(self):
         with patch("modules.weather._get", side_effect=[

@@ -28,6 +28,7 @@
       <div class="header-actions">
         <button class="header-button examples-button" id="examples-toggle" aria-expanded="false" aria-controls="try-panel"><svg><use href="#i-spark"/></svg><span>Try asking</span></button>
         <span class="connection" id="connection" role="status" aria-label="Connecting"><i></i></span>
+        <div class="language-switch" role="group" aria-label="Language"><button type="button" data-language="id" aria-pressed="false" title="Always Indonesian">ID</button><button type="button" data-language="en" aria-pressed="false" title="Always English">EN</button><button type="button" data-language="auto" aria-pressed="false" title="Detect the language automatically">Auto</button></div>
         <button class="header-button" id="devices-open" aria-haspopup="dialog"><svg><use href="#i-settings"/></svg><span>Devices</span></button>
         <button class="header-button" id="chat-toggle" aria-expanded="false" aria-controls="conversation-panel"><svg><use href="#i-chat"/></svg><span>Conversation</span><i id="unread" class="unread hidden"></i></button>
         <button class="icon-button" id="fullscreen" aria-label="Enter fullscreen" title="Toggle fullscreen"><svg><use href="#i-expand"/></svg></button>
@@ -36,7 +37,7 @@
     <main>
       <aside class="try-panel" id="try-panel" aria-labelledby="try-title">
         <div class="try-heading"><svg><use href="#i-spark"/></svg><h2 id="try-title">Try asking</h2></div>
-        <p class="try-intro">Say <strong>“Hey In Site”</strong>, then ask.</p>
+        <p class="try-intro">Say <strong>“Hey Insight”</strong>, then ask.</p>
         <details class="try-group"><summary><svg><use href="#i-globe"/></svg><span>Weather<small>“What’s the weather in Jakarta?”</small></span><b>+</b></summary><div class="try-prompts">
           <button data-prompt="What’s the weather in Jakarta?">What’s the weather in Jakarta?</button>
           <button data-prompt="Will it rain in Jakarta tomorrow?">Will it rain in Jakarta tomorrow?</button>
@@ -104,7 +105,7 @@
           <div class="hello-bubble" id="hello-bubble">Oh, hello there.</div>
         </div>
         <div class="voice-deck">
-          <div class="presence"><div class="waveform" id="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><strong id="presence-title" aria-live="polite">Ready when you are</strong><span id="presence-subtitle">Say “Hey In Site” or tap the microphone</span></div>
+          <div class="presence"><div class="waveform" id="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><strong id="presence-title" aria-live="polite">Ready when you are</strong><span id="presence-subtitle">Say “Hey Insight” or tap the microphone</span></div>
           <div class="latest-response hidden" id="latest-response" tabindex="0" aria-label="Latest response"></div>
           <div id="notice" class="notice hidden" role="status"></div>
           <div class="voice-controls">

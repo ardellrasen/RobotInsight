@@ -22,7 +22,7 @@ RobotInsight is a voice-first Windows assistant that understands English and Ind
 - An NVIDIA GPU can improve local model speed, but is optional
 - A webcam for camera questions
 
-The default Qwen3 4B Instruct chat model is quantized to about 2.5 GB. First setup also downloads the vision model, Faster-Whisper small, Kokoro and its female English voices, a native Indonesian Piper voice, and the wake-word audio feature models. The app can run without a webcam, but its vision feature needs one.
+The default Qwen3 1.7B chat model is quantized to about 1.4 GB. First setup also downloads the vision model, Faster-Whisper small, Kokoro and its female English voices, a native Indonesian Piper voice, and the wake-word audio feature models. The app can run without a webcam, but its vision feature needs one.
 
 ## First-time setup
 
@@ -55,6 +55,7 @@ For your first voice conversation:
 - An optional **Conversation** side panel with complete responses, selectable text, a copy button, and a text composer. The latest 100 messages stay available during the current run.
 - A microphone button, camera shortcut, and keyboard button. Typed and spoken questions use the same assistant and conversation context.
 - A **Devices** panel with detected microphone and camera selectors, refresh, and saved preferences.
+- A language switch at the top: **ID** and **EN** lock speech recognition, replies, voice, weather and camera to one language, and **Auto** detects it per message. The choice is saved; the first run starts in ID.
 - A **Try asking** panel on the left with eight feature groups and five clickable examples per group. On small screens, open it with the sparkle button.
 - A voice toggle for spoken responses, a live activity indicator, and a camera preview during analysis.
 - A responsive layout and support for the operating system's reduced motion preference.
@@ -65,8 +66,8 @@ The interface uses a local server bound to `127.0.0.1` and bundled assets. No ex
 
 - **Wake word:** the custom “Hey In Site” model runs through openWakeWord. The launcher downloads its melspectrogram and embedding ONNX models into `models/wakeword/`, and startup validates them. A single score above 0.45 triggers the assistant. The UI shows whether wake-word listening is actually ready, with a live microphone level. Hardware failures are retried instead of silently disabling standby.
 - **Speech recognition:** [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper) small, running locally with CPU int8 inference. Silero detects when you start and finish; recordings include a short pre-roll and end after about 650 ms of silence, rather than always waiting five seconds or cutting off at five seconds. The maximum utterance is 25 seconds. English and Indonesian are detected automatically on each utterance; ambiguous Malay detections are retried as Indonesian. No microphone audio is uploaded.
-- **Speech synthesis:** English uses [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) with the female `af_heart` voice. Indonesian uses the native [Piper id_ID news_tts voice](https://huggingface.co/rhasspy/piper-voices/tree/main/id/id_ID/news_tts/medium); this is a different speaker, rather than English pronunciation applied to Indonesian. Engines stay loaded in memory. Questions, commas, contractions and exclamations are preserved for natural phrasing. A local female Piper voice is the English fallback if Kokoro cannot load. Muting stops playback as well as future speech.
-- **Conversation:** [Qwen3 4B Instruct](https://ollama.com/library/qwen3:4b-instruct-2507-q4_K_M) answers directly without a reasoning phase. It uses a short, cheerful companion persona and a smaller context. Replies follow English or Indonesian from the latest message and remember the language for ambiguous short follow-ups. Tokens appear as they arrive and completed sentences are spoken while generation continues. The model is warmed at startup and kept loaded for 30 minutes. Initial model loading is slower than warm requests.
+- **Speech synthesis:** English uses the female Piper `en_US-hfc_female-medium` voice. Indonesian uses the native [Piper id_ID news_tts voice](https://huggingface.co/rhasspy/piper-voices/tree/main/id/id_ID/news_tts/medium) with a brighter, slightly higher tone; this is a different speaker, rather than English pronunciation applied to Indonesian. Engines stay loaded in memory. Questions, commas, contractions and exclamations are preserved for natural phrasing. [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) remains available for English through `ROBOT_TTS_ENGINE=kokoro`; it sounds more natural but is about 10 times slower here. Muting stops playback as well as future speech. The name is written “Hey Insight” in the interface, while the wake phrase is still spoken as “Hey In Site”.
+- **Conversation:** [Qwen3 1.7B](https://ollama.com/library/qwen3:1.7b) answers directly with its reasoning phase disabled, running on the integrated GPU through a private Ollama instance on port 11435. It uses a short, cheerful companion persona and a smaller context. Replies follow English or Indonesian from the latest message and remember the language for ambiguous short follow-ups. Tokens appear as they arrive and completed sentences are spoken while generation continues. The model is warmed at startup and kept loaded for 30 minutes. Initial model loading is slower than warm requests.
 - **Fast paths:** time, date, capabilities and [Open-Meteo weather](https://open-meteo.com/) use direct results without a language-model round trip. English camera descriptions are returned directly; Indonesian camera requests translate the description locally. Ordinary explanations and chat stay local; explicit internet requests and current factual questions trigger web search. Small local models can make factual mistakes; ask for a web search when you want grounded information.
 
 Kokoro and Qwen3 4B Instruct have Apache-licensed weights; Faster-Whisper is MIT-licensed. Piper voice licensing follows its linked model card and source dataset. There are no paid AI APIs or API keys. The optional public weather service and search provider still require internet access. Voice quality and recognition accuracy depend on the microphone, accent and room; these local models do not guarantee parity with Google's hosted speech services.
@@ -77,8 +78,10 @@ Optional settings can be set before launching:
 | --- | --- | --- |
 | `ROBOT_STT_LANGUAGE` | `auto` | Automatically recognize English/Indonesian; set `en` or `id` to force one language. |
 | `ROBOT_STT_MODEL` | `small` | Faster-Whisper model name; rerun speech setup after changing it. |
-| `ROBOT_TTS_VOICE` | `af_heart` | Kokoro female voice, e.g. `af_bella` or `af_sarah`. |
-| `ROBOT_LLM_MODEL` | `qwen3:4b-instruct-2507-q4_K_M` | Ollama chat model; the launcher downloads it if missing. |
+| `ROBOT_TTS_ENGINE` | `piper` | English speech engine; set `kokoro` for a more natural but slower voice. |
+| `ROBOT_TTS_VOICE` | `af_heart` | Kokoro female voice, e.g. `af_bella` or `af_sarah`; used only with `ROBOT_TTS_ENGINE=kokoro`. |
+| `ROBOT_LLM_MODEL` | `qwen3:1.7b` | Ollama chat model; the launcher downloads it if missing. `qwen3:4b-instruct-2507-q4_K_M` gives better answers but responds more slowly. |
+| `ROBOT_USE_IGPU` | `1` | Set `0` to use the regular CPU Ollama service instead of the integrated GPU. |
 | `ROBOT_WAKE_THRESHOLD` | `0.45` | Lower is more sensitive and may trigger more false wakes. |
 
 To inspect the design without loading speech models, opening a microphone, or connecting to Ollama:
@@ -126,7 +129,7 @@ You can also say “Look on the internet” or “Cari di internet” without a 
 - **Microphone or camera errors:** choose a connected device in **Devices**, click **Apply devices**, and check Windows privacy permissions.
 - **Dependency setup needs to run again:** delete `.setup_complete` and launch the `.bat` file again.
 - **Wake word never responds:** run `Start_RobotInsight.bat` again to repair missing speech resources. Check the standby message and microphone level, then choose the intended microphone in **Devices**. Say “Hey In Site,” pause briefly for the listening expression, then ask your question.
-- **The model is slow:** allow startup warmup to finish. Ollama can use the CPU, but a supported GPU improves chat response time. The default is `qwen3:4b-instruct-2507-q4_K_M`; simple time/date/weather queries avoid the chat model entirely.
+- **The model is slow:** allow startup warmup to finish, and check that the terminal prints `[LLM] Ready: 100% on GPU`. A lower number means Ollama is using the CPU. The default is `qwen3:1.7b`; simple time/date/weather queries avoid the chat model entirely. See [docs/perubahan-optimasi-performa.md](docs/perubahan-optimasi-performa.md).
 - **A search asks what to look for:** give a topic, such as “NASA Artemis news.” A bare “Look on the internet” starts a topic prompt rather than searching punctuation.
 - **Web search is unavailable:** verify your internet connection and try again. The app tries alternate free search providers, but provider outages or blocked connections can still prevent results. A failed search does not mean the local chat model has lost its connection.
 
@@ -144,6 +147,7 @@ Downloaded models, voice samples, conversation memory, and device preferences ar
 | `modules/` | Speech engines, wake word, devices, local UI server, weather, and search. |
 | `modules/hey_in_site.onnx` | Custom wake-word model used by the app. |
 | `ui/` | Browser interface and animated robot asset. |
+| `docs/pengetahuan-itb-insight.md` | Event facts the robot answers from; edits apply without a restart. |
 | `tests/` | Automated regression tests. |
 | `Start_RobotInsight.bat` | Windows setup and launch entry point. |
 | `models/` | Downloaded speech resources, created locally by setup. |

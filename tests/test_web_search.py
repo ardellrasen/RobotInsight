@@ -54,7 +54,7 @@ class WebSearchTests(unittest.TestCase):
         execute.assert_called_once_with({"action": "search_web", "value": "NASA Artemis"})
         messages = llm.call_args.args[1]
         self.assertIn("ALREADY performed a live internet search", messages[0]["content"])
-        self.assertEqual(json.loads(messages[1]["content"])["search_results"], result["sources"])
+        self.assertEqual(json.loads(messages[1]["content"])["search_results"], [{"title": "NASA", "snippet": "Artemis explores the Moon."}])
         self.assertFalse(assistant._pending_search)
 
     def test_indonesian_clarification_and_topic_reply(self):

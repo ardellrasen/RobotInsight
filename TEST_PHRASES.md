@@ -49,4 +49,4 @@ Say “Hey In Site,” pause for the listening expression, then try these one at
 - “Kamu bisa apa?” — spoken feature overview.
 - “Istirahat.” — returns to wake-word standby.
 
-English uses a female Kokoro voice; Indonesian uses a separate native Piper speaker. Test in your actual room with your own accent; synthesized test audio cannot establish microphone or accent accuracy.
+English uses a female Piper voice; Indonesian uses a separate native Piper speaker. Test in your actual room with your own accent; synthesized test audio cannot establish microphone or accent accuracy.

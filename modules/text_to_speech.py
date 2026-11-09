@@ -1,4 +1,5 @@
-"""Local female English Kokoro and native Indonesian Piper speech."""
+"""Local female speech: Piper for English and Indonesian, Kokoro optional for English."""
+from concurrent.futures import ThreadPoolExecutor
 import os
 import json
 from pathlib import Path
@@ -17,6 +18,16 @@ _engine_name = ""
 _indonesian_engine = None
 _engine_lock = threading.RLock()
 VOICE = os.environ.get("ROBOT_TTS_VOICE", "af_heart")
+# Piper is about 10x faster than Kokoro on this CPU; Kokoro sounds more natural.
+ENGLISH_ENGINE = os.environ.get("ROBOT_TTS_ENGINE", "piper")
+# The "cerah" tone: a higher pitch (about 276 Hz), with length_scale offsetting
+# the speed-up that the pitch shift causes.
+INDONESIAN_PITCH = 1.08
+INDONESIAN_TONE = {"length_scale": 1.08, "noise_scale": 0.75}
+# One worker: sentences are synthesized in order and never compete with each other.
+_prepare_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="Robot speech prep")
+_prepared = {}
+_prepared_lock = threading.Lock()
 
 
 def _load_piper(path):
@@ -46,22 +57,23 @@ def initialize():
     with _engine_lock:
         if _engine is not None:
             return _engine
-        try:
-            import onnxruntime as ort
-            from kokoro_onnx import Kokoro
-            if not KOKORO_MODEL.is_file() or not KOKORO_VOICES.is_file():
-                raise FileNotFoundError("Kokoro assets missing. Run the launcher.")
-            options = ort.SessionOptions()
-            options.intra_op_num_threads = min(4, os.cpu_count() or 2)
-            options.inter_op_num_threads = 1
-            session = ort.InferenceSession(str(KOKORO_MODEL), sess_options=options,
-                                          providers=["CPUExecutionProvider"])
-            _engine = Kokoro.from_session(session, str(KOKORO_VOICES))
-            _engine_name = "kokoro"
-        except Exception as error:
-            print(f"[TTS] Kokoro unavailable: {error}. Trying the local female fallback.")
-            path = Path(__file__).with_name("en_US-hfc_female-medium.onnx")
-            _engine = _load_piper(path)
+        if ENGLISH_ENGINE == "kokoro":
+            try:
+                import onnxruntime as ort
+                from kokoro_onnx import Kokoro
+                if not KOKORO_MODEL.is_file() or not KOKORO_VOICES.is_file():
+                    raise FileNotFoundError("Kokoro assets missing. Run the launcher.")
+                options = ort.SessionOptions()
+                options.intra_op_num_threads = min(4, os.cpu_count() or 2)
+                options.inter_op_num_threads = 1
+                session = ort.InferenceSession(str(KOKORO_MODEL), sess_options=options,
+                                              providers=["CPUExecutionProvider"])
+                _engine = Kokoro.from_session(session, str(KOKORO_VOICES))
+                _engine_name = "kokoro"
+            except Exception as error:
+                print(f"[TTS] Kokoro unavailable: {error}. Using Piper.")
+        if _engine is None:
+            _engine = _load_piper(Path(__file__).with_name("en_US-hfc_female-medium.onnx"))
             _engine_name = "piper"
         print(f"[TTS] {_engine_name} ready (female voice).")
         return _engine
@@ -72,14 +84,24 @@ def synthesize(text, language=None):
     if not text:
         return np.empty(0, dtype=np.float32), 24000
     with _engine_lock:
-        if (language or detect_language(text)) == "id":
+        indonesian = (language or detect_language(text)) == "id"
+        # The name is written "Insight" but each voice needs its own spelling to say it.
+        text = re.sub(r"\bInsight\b", "Insait" if indonesian else "In Site", text)
+        if indonesian:
+            text = re.sub(r"\bPlay[\s-]?Tech\b", "Plei Tek", text, flags=re.I)
+            text = re.sub(r"\bShow[\s-]?Tech\b", "Syo Tek", text, flags=re.I)
+        if indonesian:
             global _indonesian_engine
             if _indonesian_engine is None:
                 _indonesian_engine = _load_piper(INDONESIAN_VOICE)
-            chunks = list(_indonesian_engine.synthesize(text))
+            from piper.voice import SynthesisConfig
+            from scipy.signal import resample_poly
+            chunks = list(_indonesian_engine.synthesize(text, syn_config=SynthesisConfig(**INDONESIAN_TONE)))
             if not chunks:
                 return np.empty(0, dtype=np.float32), 22050
-            return np.concatenate([chunk.audio_float_array for chunk in chunks]), chunks[0].sample_rate
+            audio = np.concatenate([chunk.audio_float_array for chunk in chunks])
+            # Fewer samples at the same playback rate raises the pitch.
+            return resample_poly(audio, 100, round(100 * INDONESIAN_PITCH)).astype(np.float32), chunks[0].sample_rate
         engine = initialize()
         if _engine_name == "kokoro":
             return engine.create(text, voice=VOICE, speed=1.03, lang="en-us")
@@ -89,6 +111,26 @@ def synthesize(text, language=None):
         return np.concatenate([chunk.audio_float_array for chunk in chunks]), chunks[0].sample_rate
 
 
+def warm_up():
+    """The first synthesis per engine is several times slower; absorb it at startup."""
+    for sample, language in (("Hello there.", "en"), ("Halo, apa kabar?", "id")):
+        try:
+            synthesize(sample, language=language)
+        except Exception as error:
+            print(f"[TTS] Warmup failed for {language}: {error}")
+
+
+def prepare(text, language=None):
+    """Queue synthesis ahead of playback so consecutive sentences have no gap."""
+    key = (text, language)
+    with _prepared_lock:
+        if key in _prepared:
+            return
+        while len(_prepared) >= 8:  # Abandoned when voice is muted mid-answer.
+            _prepared.pop(next(iter(_prepared)))
+        _prepared[key] = _prepare_pool.submit(synthesize, text, language)
+
+
 def speak(text, language=None):
     import sounddevice as sd
     from modules.interface import voice_enabled
@@ -96,8 +138,10 @@ def speak(text, language=None):
         return
     try:
         started = time.monotonic()
-        audio, rate = synthesize(text, language=language)
-        print(f"[TTS] Synthesized in {time.monotonic() - started:.2f}s")
+        with _prepared_lock:
+            pending = _prepared.pop((text, language), None)
+        audio, rate = pending.result() if pending else synthesize(text, language=language)
+        print(f"[TTS] Audio ready in {time.monotonic() - started:.2f}s")
         if len(audio) and voice_enabled():
             sd.play(audio, rate)
             while sd.get_stream().active:
@@ -111,9 +155,10 @@ def speak(text, language=None):
 
 class SpeechSession:
     """Speak completed sentences as generation continues; always join before recording."""
-    def __init__(self, speaker, enabled):
+    def __init__(self, speaker, enabled, prepare=None):
         self.speaker = speaker
         self.enabled = enabled
+        self.prepare = prepare
         self.items = queue.Queue(maxsize=16)
         self.sentences = 0
         self.thread = threading.Thread(target=self._run, daemon=True, name="Robot speech")
@@ -135,6 +180,8 @@ class SpeechSession:
     def add(self, sentence):
         if sentence.strip():
             self.sentences += 1
+            if self.prepare is not None:
+                self.prepare(sentence.strip())
             self.items.put(sentence.strip())
 
     def finish(self):

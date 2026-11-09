@@ -3,6 +3,10 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 title RobotInsight
 
+rem Only one copy may run; otherwise every copy hears the wake word and answers.
+set "ROBOT_DIR=%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0modules\stop_previous_instance.ps1"
+
 echo ==========================================
 echo          RobotInsight - first run
 echo ==========================================
@@ -56,10 +60,20 @@ if not exist "modules\en_US-hfc_female-medium.onnx" (
 where ollama >nul 2>nul
 if errorlevel 1 goto MissingOllama
 
+rem Run a private Ollama on the integrated GPU; it is about 5x faster to read the
+rem prompt than the CPU here. Set ROBOT_USE_IGPU=0 to use the regular Ollama instead.
+if not "%ROBOT_USE_IGPU%"=="0" (
+    set "OLLAMA_HOST=127.0.0.1:11435"
+    set "OLLAMA_VULKAN=1"
+    set "OLLAMA_IGPU_ENABLE=1"
+    set "OLLAMA_NUM_PARALLEL=1"
+)
+
 ollama list >nul 2>nul
 if not errorlevel 1 goto OllamaReady
 echo Starting the Ollama service...
-start "Ollama service" /min ollama serve
+rem /b keeps it in this window, so it stops when RobotInsight's window closes.
+start "" /b ollama serve >nul 2>nul
 set /a attempts=0
 
 :WaitForOllama
@@ -71,7 +85,7 @@ timeout /t 1 /nobreak >nul
 goto WaitForOllama
 
 :OllamaReady
-if not defined ROBOT_LLM_MODEL set "ROBOT_LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M"
+if not defined ROBOT_LLM_MODEL set "ROBOT_LLM_MODEL=qwen3:1.7b"
 ollama list | findstr /i /c:"%ROBOT_LLM_MODEL%" >nul
 if errorlevel 1 (
     echo Downloading the compact chat model %ROBOT_LLM_MODEL%...

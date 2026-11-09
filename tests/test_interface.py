@@ -46,6 +46,15 @@ class InterfaceTests(unittest.TestCase):
         except HTTPError as error:
             return error.code, json.load(error)
 
+    def test_language_endpoint_switches_mode_and_rejects_unknown_values(self):
+        from modules import language
+        self.addCleanup(language.set_language_mode, "auto")
+        ui._preview = True  # Preview mode never writes the saved choice.
+        self.assertEqual(self.request("/api/language", {"mode": "en"}), (200, {"language": "en"}))
+        self.assertEqual(self.request("/api/state")[1]["language"], "en")
+        self.assertEqual(self.request("/api/language", {"mode": "fr"})[0], 400)
+        self.assertEqual(language.language_mode(), "en")
+
     def test_private_state_requires_session(self):
         ui.set_conversation(question="private prompt")
         self.assertEqual(self.request("/api/state", authorized=False)[0], 403)

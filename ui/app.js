@@ -10,7 +10,7 @@ let renderedMessages = [], localEcho = null, preview = false, chatOpen = false;
 let deviceLoading = false;
 let gaze = {x: 0, y: 0}, target = {x: 0, y: 0}, greetingUntil = 0;
 const statuses = {
-  idle: ["Ready when you are", "Say “Hey In Site” or tap the microphone"],
+  idle: ["Ready when you are", "Say “Hey Insight” or tap the microphone"],
   warmup: ["Getting comfortable", "Your companion is starting up"],
   listening: ["I’m all ears", "Go ahead, I’m listening to you"],
   transcribing: ["Got it", "Turning your words into text"],
@@ -99,7 +99,7 @@ async function poll() {
     }
     if (state === "idle" && !preview) {
       if (audioStatus.wakeword === "ready") {
-        $("presence-subtitle").textContent = "Listening for “Hey In Site”";
+        $("presence-subtitle").textContent = "Listening for “Hey Insight”";
       } else {
         $("presence-title").textContent = "Voice input needs attention";
         $("presence-subtitle").textContent = audioStatus.message || "Check your microphone in Devices";
@@ -117,6 +117,7 @@ async function poll() {
       if (data.messages.some(m => m.role === "user" && m.content === localEcho)) localEcho = null;
       renderMessages(localEcho ? [...data.messages, {role: "user", content: localEcho}] : data.messages);
     }
+    showLanguage(data.language);
     voice = data.voice; $("voice-toggle").setAttribute("aria-pressed", String(voice));
     $("voice-toggle").querySelector("span").textContent = voice ? "Voice on" : "Voice off";
     $("camera-preview").classList.toggle("hidden", !data.capture);
@@ -129,6 +130,12 @@ async function poll() {
     notice(error.message.includes("launcher") ? error.message : "Connection lost. Keep the assistant terminal open, or relaunch RobotInsight.");
   } finally {setTimeout(poll, 350);}
 }
+function showLanguage(mode) {
+  document.querySelectorAll("[data-language]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.language === mode)));
+}
+document.querySelectorAll("[data-language]").forEach(button => button.addEventListener("click", async () => {
+  try {showLanguage((await api("/api/language", {mode: button.dataset.language})).language);} catch (error) {notice(error.message);}
+}));
 async function submitPrompt(text) {
   text = text.trim();
   if (!text || pending) return;

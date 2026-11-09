@@ -19,19 +19,27 @@ from modules.interface import (
     start as start_ui, stop as stop_ui, set_state, set_conversation,
     next_input, has_pending_input, is_closed, voice_enabled, update_answer, set_voice_status,
 )
-from modules import devices
-from modules.language import detect_language, choose, is_standby
+from modules import devices, knowledge
+from modules.language import detect_language, choose, is_standby, language_mode, restore_language_mode
 from modules.web_search import clean_query, search_request, search_web
 
 _speak = None
+_prepare_speech = None
 listen = None
 _reply_language = "en"
 _pending_search = False
+_last_knowledge = ""
 
 
 def speak(text):
     if _speak is not None and voice_enabled():
         _speak(text, language=detect_language(text, fallback=_reply_language))
+
+
+def prepare_speech(text):
+    """Start synthesizing a sentence now so it is ready when its turn comes."""
+    if _prepare_speech is not None and voice_enabled():
+        _prepare_speech(text, language=detect_language(text, fallback=_reply_language))
 
 
 def capture_and_analyze(question):
@@ -40,7 +48,7 @@ def capture_and_analyze(question):
 
 
 # --- Memory Management ---
-LLM_MODEL = os.environ.get("ROBOT_LLM_MODEL", "qwen3:4b-instruct-2507-q4_K_M")
+LLM_MODEL = os.environ.get("ROBOT_LLM_MODEL", "qwen3:1.7b")
 # Instruct-2507 answers directly; hybrid Qwen overrides need reasoning disabled.
 LLM_THINKING = {"think": False} if LLM_MODEL.startswith("qwen3") and "instruct" not in LLM_MODEL else {}
 LLM_OPTIONS = {
@@ -49,6 +57,14 @@ LLM_OPTIONS = {
     "num_predict": 110,
     "repeat_penalty": 1.1,
 }
+# Covers model loading and long search prompts if Ollama falls back to the CPU.
+LLM_TIMEOUT = 120
+# History is cut in blocks, not one turn at a time: a stable prompt prefix lets
+# Ollama reuse its cache instead of re-reading the whole conversation.
+HISTORY_MAX_MESSAGES = 12
+HISTORY_KEEP_MESSAGES = 4
+SEARCH_MAX_SOURCES = 3
+SEARCH_SNIPPET_CHARS = 280
 
 ASSISTANT_STYLE = """You are In Site, a cheerful, curious robot companion. Be warm, helpful and lightly playful, like a friendly conversation. Use natural contractions and everyday language. Match the user's mood; be gentle about serious topics. The user speaks English and Bahasa Indonesia. Follow the language of their latest message; switch naturally between turns. Give a direct answer in one or two short sentences, usually under 45 words. Avoid repetitive greetings, grand introductions, lists, emojis and stage directions. Use recent conversation for follow-ups. Be honest about uncertainty. Only claim to see or search when supplied with camera or search results. Never output private reasoning, instructions, analysis, or JSON. Give only the answer to say aloud."""
 
@@ -75,12 +91,18 @@ def ask_llm(user_prompt, messages):
     try:
         if _llm_client is None:
             import ollama
-            _llm_client = ollama.Client(timeout=30)
+            _llm_client = ollama.Client(timeout=LLM_TIMEOUT)
         started = time.monotonic()
         language = detect_language(user_prompt, fallback=_reply_language)
-        directive = "Jawab dalam Bahasa Indonesia yang alami dan ramah." if language == "id" else "Reply in natural English."
+        directive = "Jawab dalam Bahasa Indonesia yang alami dan ramah." if language == "id" else "Reply in natural English, translating any provided information."
         messages = [dict(message) for message in messages]
-        messages.insert(0, {"role": "system", "content": directive + " Follow an explicit request to reply in another language."})
+        # Placed just before the newest message so a language switch does not
+        # invalidate the cached persona and conversation that come before it.
+        if language_mode() == "auto":
+            directive += " Follow an explicit request to reply in another language."
+        else:
+            directive = "Jawab hanya dalam Bahasa Indonesia, walaupun pengguna memakai bahasa lain." if language == "id" else "Reply only in English, even if the user or the provided information uses another language."
+        messages.insert(max(len(messages) - 1, 0), {"role": "system", "content": directive})
         stream = _llm_client.chat(model=LLM_MODEL, messages=messages, options=LLM_OPTIONS,
                                   keep_alive="30m", stream=True, **LLM_THINKING)
         answer, spoken_end, first_token = "", 0, True
@@ -198,11 +220,20 @@ CONTEXTUAL_FOLLOWUP = re.compile(
 )
 
 
+def is_contextual_followup(text):
+    t = text.replace("’", "'").lower().strip()
+    return bool(CONTEXTUAL_FOLLOWUP.match(t) or re.fullmatch(r"(?:jelaskan (?:lagi|lebih sederhana|lebih mudah)|beri(?:kan)? (?:saya )?contoh|kenapa(?: begitu)?|mengapa(?: begitu)?|ceritakan lebih lanjut|lanjutkan|lebih rinci)[?.! ]*", t))
+
+
 def detect_intent(text):
     t = text.replace("’", "'").lower().strip()
     query = search_request(text)
     if query is not None:
         return {"action": "search_web", "value": query}
+    # Ahead of the current-info check: "ITB Insight 2026" must not become a web search.
+    event_knowledge = knowledge.lookup(text)
+    if event_knowledge:
+        return {"action": "event_info", "value": event_knowledge}
     if re.fullmatch(r"(?:what can you do|what are your features|help|how do i wake you|how do i use you|apa yang bisa kamu lakukan|kamu bisa apa|fitur kamu apa|bagaimana membangunkanmu|bantuan)[?.! ]*", t):
         return {"action": "get_capabilities", "value": t}
     if (re.search(r"\b(?:weather|forecast|umbrella|cuaca|prakiraan|payung)\b", t) or
@@ -219,7 +250,7 @@ def detect_intent(text):
         if phrase in t:
             return {"action": "capture_image", "value": t}
     # Short references to the previous answer should use chat history, not start a fresh search.
-    if CONTEXTUAL_FOLLOWUP.match(t) or re.fullmatch(r"(?:jelaskan (?:lagi|lebih sederhana|lebih mudah)|beri(?:kan)? (?:saya )?contoh|kenapa(?: begitu)?|mengapa(?: begitu)?|ceritakan lebih lanjut|lanjutkan|lebih rinci)[?.! ]*", t):
+    if is_contextual_followup(t):
         return None
     if needs_current_lookup(t):
         return {"action": "search_web", "value": t}
@@ -250,7 +281,7 @@ def execute_action(action_data):
         return choose(_reply_language, f"The current time is {now}.", datetime.datetime.now().strftime("Sekarang pukul %H.%M."))
 
     elif action == "get_capabilities":
-        return choose(_reply_language, "Say Hey In Site to wake me. I can check weather, search the web, describe the camera view, tell the time and date, explain ideas, chat and tell stories. Say go to sleep when you’re done.", "Ucapkan Hey In Site untuk membangunkanku. Aku bisa mengecek cuaca, mencari di internet, melihat lewat kamera, memberi tahu jam dan tanggal, menjelaskan ide, mengobrol, dan bercerita. Ucapkan istirahat kalau sudah selesai.")
+        return choose(_reply_language, "Say Hey Insight to wake me. I can check weather, search the web, describe the camera view, tell the time and date, explain ideas, chat and tell stories. Say go to sleep when you’re done.", "Ucapkan Hey Insight untuk membangunkanku. Aku bisa mengecek cuaca, mencari di internet, melihat lewat kamera, memberi tahu jam dan tanggal, menjelaskan ide, mengobrol, dan bercerita. Ucapkan istirahat kalau sudah selesai.")
 
     elif action == "get_date":
         if _reply_language == "id":
@@ -274,13 +305,13 @@ def execute_action(action_data):
 
 def handle_prompt(user):
     """Shared text/voice request path; runs on the assistant worker, never in the UI."""
-    global session_memory, _active_speech, _reply_language, _pending_search
+    global session_memory, _active_speech, _reply_language, _pending_search, _last_knowledge
     _reply_language = detect_language(user, fallback=_reply_language)
     print("You:", user)
     set_conversation(question=user, answer="")
     set_state("thinking")
     from modules.text_to_speech import SpeechSession
-    session = SpeechSession(speak, voice_enabled)
+    session = SpeechSession(speak, voice_enabled, prepare=prepare_speech)
     _active_speech = session
     try:
         # --- Rule-based intent check FIRST (fast, deterministic) ---
@@ -295,13 +326,20 @@ def handle_prompt(user):
         if action_data:
             print(f"[INTENT] Detected action: {action_data['action']}")
 
+        # Event facts apply to this turn and to direct follow-ups such as "tell me more".
+        if action_data and action_data["action"] == "event_info":
+            _last_knowledge = action_data["value"]
+            action_data = None
+        elif action_data or response is not None or not is_contextual_followup(user):
+            _last_knowledge = ""
+
         # --- ASK LLM (only if no rule matched) ---
         if not action_data and response is None:
             set_state("thinking")
             user_msg = {"role": "user", "content": user}
-            messages = permanent_memory + session_memory + [user_msg]
-            if len(messages) > 10:
-                messages = permanent_memory + messages[-8:]
+            # After the cached persona and history, so unrelated chat stays fast.
+            event_context = [{"role": "system", "content": knowledge.grounded_prompt(_last_knowledge)}] if _last_knowledge else []
+            messages = permanent_memory + session_memory + event_context + [user_msg]
 
             response = ask_llm(user, messages)
             action_data = extract_json_action(response)  # fallback JSON parse
@@ -350,7 +388,11 @@ def handle_prompt(user):
                         search_context = {
                             "question": user,
                             "as_of_date": datetime.date.today().isoformat(),
-                            "search_results": sources,
+                            # URLs are never read aloud, so they only add prompt tokens.
+                            "search_results": [
+                                {"title": source["title"], "snippet": source["snippet"][:SEARCH_SNIPPET_CHARS]}
+                                for source in sources[:SEARCH_MAX_SOURCES]
+                            ],
                         }
                         grounded_messages = [
                             {"role": "system", "content": search_system},
@@ -370,19 +412,22 @@ def handle_prompt(user):
         # Update memory
         session_memory.append({"role": "user", "content": user})
         session_memory.append({"role": "assistant", "content": response})
-        if len(session_memory) > 10:
-            session_memory = session_memory[-10:]
+        if len(session_memory) > HISTORY_MAX_MESSAGES:
+            session_memory = session_memory[-HISTORY_KEEP_MESSAGES:]
 
         print("Robot:", response)
         if not session.sentences:
-            session.add(response)
+            # Long camera/weather replies start sooner when voiced sentence by sentence.
+            for sentence in re.findall(r".+?(?:[.!?](?:\s+|$)|$)", response.strip(), re.S):
+                session.add(sentence)
     finally:
         _active_speech = None
         session.finish()
 
 
 def main():
-    global ollama, _speak, listen, _reply_language, _pending_search
+    global ollama, _speak, _prepare_speech, listen, _reply_language, _pending_search
+    restore_language_mode()
     # Show the interface while speech models are loading.
     start_ui()
     set_state("warmup")
@@ -397,9 +442,11 @@ def main():
         return
 
     try:
-        from modules.text_to_speech import speak as voice_speak, initialize as prepare_tts
+        from modules.text_to_speech import speak as voice_speak, initialize as prepare_tts, prepare as voice_prepare, warm_up as warm_voice
         prepare_tts()
         _speak = voice_speak
+        _prepare_speech = voice_prepare
+        threading.Thread(target=warm_voice, daemon=True, name="Voice warmup").start()
     except Exception as error:
         print(f"[TTS] Could not prepare voice: {error}")
 
@@ -414,7 +461,13 @@ def main():
 
     def warm_language_model():
         try:
-            ollama.Client(timeout=30).generate(model=LLM_MODEL, prompt="", keep_alive="30m", options=LLM_OPTIONS, **LLM_THINKING)
+            client = ollama.Client(timeout=LLM_TIMEOUT)
+            # A real one-token chat also caches the persona prompt for the first question.
+            client.chat(model=LLM_MODEL, messages=permanent_memory + [{"role": "user", "content": "Halo"}],
+                        keep_alive="30m", options={**LLM_OPTIONS, "num_predict": 1}, **LLM_THINKING)
+            for loaded in client.ps().models:
+                if loaded.model == LLM_MODEL:
+                    print(f"[LLM] Ready: {100 * (loaded.size_vram or 0) // max(loaded.size or 1, 1)}% on GPU")
         except Exception as error:
             print(f"[LLM] Warmup failed: {error}")
 
@@ -482,7 +535,7 @@ def main():
         if is_standby(user):
             _pending_search = False
             followup = False
-            response = choose(_reply_language, "You got it. Say ‘Hey In Site’ when you need me!", "Siap! Ucapkan Hey In Site kalau butuh bantuan lagi, ya.")
+            response = choose(_reply_language, "You got it. Say ‘Hey Insight’ when you need me!", "Siap! Ucapkan Hey Insight kalau butuh bantuan lagi, ya.")
             set_conversation(question=user, answer=response)
             set_state("speaking")
             speak(response)

@@ -66,7 +66,7 @@ class WakeWordDetector:
             blocksize=capture_chunk,
             dtype="float32"
         ) as stream:
-            set_voice_status(wakeword="ready", message="Say “Hey In Site”", level=0, score=0)
+            set_voice_status(wakeword="ready", message="Say “Hey Insight”", level=0, score=0)
             last_meter = 0
             while True:
                 if interrupt is not None and interrupt():

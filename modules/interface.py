@@ -13,6 +13,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 from modules import devices
+from modules.language import language_mode, set_language_mode
 
 _lock = threading.Lock()
 _current_state = "warmup"
@@ -111,7 +112,8 @@ def _snapshot():
     with _lock:
         return {"state": _current_state, "messages": list(_conversation),
                 "capture": _capture_image, "voice": _voice_enabled,
-                "revision": _revision, "preview": _preview, "voice_status": dict(_voice_status)}
+                "revision": _revision, "preview": _preview, "voice_status": dict(_voice_status),
+                "language": language_mode()}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -191,6 +193,14 @@ class _Handler(BaseHTTPRequestHandler):
             with _lock:
                 _voice_enabled = bool(data.get("enabled", True))
             return self._json(200, {"ok": True})
+        elif path == "/api/language":
+            try:
+                set_language_mode(data.get("mode"), remember=not _preview)
+            except ValueError as error:
+                return self._json(400, {"error": str(error)})
+            except OSError:
+                return self._json(500, {"error": "Could not save the language choice. Check folder write permissions."})
+            return self._json(200, {"language": language_mode()})
         else:
             return self._json(404, {"error": "Not found"})
         if _preview:

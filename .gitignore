@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 memory.json
 device_settings.json
+language_setting.json
 device_settings.tmp
 models/
 output/

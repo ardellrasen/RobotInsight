@@ -1,11 +1,42 @@
 """Small English/Indonesian routing helpers; no extra language model or network."""
+import json
+from pathlib import Path
 import re
+
+MODES = ("id", "en", "auto")
+SETTINGS_PATH = Path(__file__).resolve().parent.parent / "language_setting.json"
+_mode = "auto"  # The app restores the saved choice at startup.
+
+
+def language_mode():
+    return _mode
+
+
+def set_language_mode(mode, remember=False):
+    """Lock every language decision to a mode; "auto" returns to detection."""
+    global _mode
+    if mode not in MODES:
+        raise ValueError("Choose id, en or auto.")
+    _mode = mode
+    if remember:
+        SETTINGS_PATH.write_text(json.dumps({"mode": mode}), encoding="utf-8")
+
+
+def restore_language_mode(default="id"):
+    try:
+        mode = json.loads(SETTINGS_PATH.read_text(encoding="utf-8")).get("mode")
+    except (OSError, ValueError, AttributeError):
+        mode = default
+    set_language_mode(mode if mode in MODES else default)
+
 
 INDONESIAN = set("apa bagaimana gimana tolong saya aku kamu jam berapa pukul sekarang cuaca besok hari tanggal ceritakan jelaskan cari carikan lihat berita terbaru sederhana lagi terima kasih kabar halo hai selamat hujan suhu di ini itu bisa mengapa kenapa buat dengan untuk dan istirahat berhenti mendengarkan lanjutkan dong boleh mau tunggu cukup waktu bulan contoh dalam lebih tentang baca bacakan depan buku yang apakah kapan dimana siapa penampilan membangunkanmu fitur lakukan dongeng lelucon makasih bantu dengar tulisan cerah awan panas dingin tanaman daun pelangi ngobrol makanan suka musik lagu jelasin nggak enggak gak kok deh yuk siap baik baiklah bosen bosan".split())
 ENGLISH = set("what when where who please tell explain how show the is in and can me you weather time now why give more hello hi thanks tomorrow today read search look something are a it for of on your with want good great okay fine yes no maybe help story joke bored sad happy blue green plant plants leaves".split())
 
 
 def detect_language(text, fallback="en"):
+    if _mode != "auto":
+        return _mode
     words = re.findall(r"[^\W\d_]+", text.lower(), re.UNICODE)
     indonesian = sum(word in INDONESIAN for word in words)
     english = sum(word in ENGLISH for word in words)
