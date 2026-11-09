@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark"><title>RobotInsight · Your everyday companion</title>
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <svg class="icon-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M8 5 9.5 3h5L16 5h4a1 1 0 0 1 1 1v13H3V6a1 1 0 0 1 1-1Z"/><circle cx="12" cy="12" r="4"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></symbol>
+    <symbol id="i-audio" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="8" cy="7" r="3" fill="currentColor" stroke="none"/><circle cx="16" cy="17" r="3" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 15a3 3 0 0 1-3 3H9l-5 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z"/><path d="M8 8h8M8 12h5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h1m4 0h1m4 0h1M6 12h1m4 0h1m4 0h1M7 16h10"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7V3l-3 3a8 8 0 1 0 3 6M15 7h5"/></symbol>
+  </defs></svg>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="RobotInsight home"><span class="brand-mark"><span></span><span></span></span><span>robot<span class="brand-light">insight</span><span class="brand-dot">.</span></span></a>
+      <div class="header-actions">
+        <button class="header-button examples-button" id="examples-toggle" aria-expanded="false" aria-controls="try-panel"><svg><use href="#i-spark"/></svg><span>Try asking</span></button>
+        <span class="connection" id="connection" role="status" aria-label="Connecting"><i></i></span>
+        <button class="header-button" id="devices-open" aria-haspopup="dialog"><svg><use href="#i-settings"/></svg><span>Devices</span></button>
+        <button class="header-button" id="chat-toggle" aria-expanded="false" aria-controls="conversation-panel"><svg><use href="#i-chat"/></svg><span>Conversation</span><i id="unread" class="unread hidden"></i></button>
+        <button class="icon-button" id="fullscreen" aria-label="Enter fullscreen" title="Toggle fullscreen"><svg><use href="#i-expand"/></svg></button>
+      </div>
+    </header>
+    <main>
+      <aside class="try-panel" id="try-panel" aria-labelledby="try-title">
+        <div class="try-heading"><svg><use href="#i-spark"/></svg><h2 id="try-title">Try asking</h2></div>
+        <p class="try-intro">Say <strong>“Hey In Site”</strong>, then ask.</p>
+        <details class="try-group"><summary><svg><use href="#i-globe"/></svg><span>Weather<small>“What’s the weather in Jakarta?”</small></span><b>+</b></summary><div class="try-prompts">
+          <button data-prompt="What’s the weather in Jakarta?">What’s the weather in Jakarta?</button>
+          <button data-prompt="Will it rain in Jakarta tomorrow?">Will it rain in Jakarta tomorrow?</button>
+          <button data-prompt="What’s the temperature in London?">What’s the temperature in London?</button>
+          <button data-prompt="Do I need an umbrella in Bandung?">Do I need an umbrella in Bandung?</button>
+          <button data-prompt="What’s the forecast for Denpasar tomorrow?">What’s the forecast for Denpasar tomorrow?</button>
+        </div></details>
+        <details class="try-group"><summary><svg><use href="#i-globe"/></svg><span>Internet search<small>“Look on the internet for space news.”</small></span><b>+</b></summary><div class="try-prompts">
+          <button data-prompt="Look on the internet for space news.">Look on the internet for space news.</button>
+          <button data-prompt="Search for the latest NASA news.">Search for the latest NASA news.</button>
+          <button data-prompt="Look up the next solar eclipse.">Look up the next solar eclipse.</button>
+          <button data-prompt="Search the web for beginner recipes.">Search the web for beginner recipes.</button>
+          <button data-prompt="Find me interesting science discoveries.">Find me interesting science discoveries.</button>
+        </div></details>
+        <details class="try-group"><summary><svg><use href="#i-camera"/></svg><span>Camera<small>“What do you see?”</small></span><b>+</b></summary><div class="try-prompts">
+          <button data-prompt="What do you see?">What do you see?</button>
+          <button data-prompt="Describe what’s in front of you.">Describe what’s in front of you.</button>
+          <button data-prompt="What color is the object in front of you?">What color is the object in front of you?</button>
+          <button data-prompt="Read the text in front of you.">Read the text in front of you.</button>
+          <button data-prompt="How do I look?">How do I look?</button>
+        </div></details>
+        <details class="try-group"><summary><svg><use href="#i-clock"/></svg><span>Time &amp; date<small>“What time is it?”</small></span><b>+</b></summary><div class="try-prompts">
+          <button data-prompt="What time is it?">What time is it?</button>
+          <button data-prompt="What’s the date today?">What’s the date today?</button>
+          <button data-prompt="What day is it?">What day is it?</button>
+          <button data-prompt="Tell me the time and date.">Tell me the time and date.</button>
+          <button data-prompt="What month is it?">What month is it?</button>
+        </div></details>
+        <details class="try-group"><summary><svg><use href="#i-spark"/></svg><span>Learn something<small>“Explain how rainbows form.”</small></span><b>+</b></summary><div class="try-prompts">
+          <button data-prompt="Explain how rainbows form.">Explain how rainbows form.</button>
+          <button data-prompt="What is a transistor?">What is a transistor?</button>
+          <button data-prompt="How do plants grow?">How do plants grow?</button>
+          <button data-prompt="Explain gravity in simple words.">Explain gravity in simple words.</button>
+          <button data-prompt="Tell me about the moon.">Tell me about the moon.</button>
+        </div></details>
+        <details class="try-group"><summary><svg><use href="#i-spark"/></svg><span>Fun &amp; ideas<small>“Tell me a short joke.”</small></span><b>+</b></summary><div class="try-prompts">
+          <button data-prompt="Tell me a short joke.">Tell me a short joke.</button>
+          <button data-prompt="Tell me a tiny adventure story.">Tell me a tiny adventure story.</button>
+          <button data-prompt="Give me a fun weekend idea.">Give me a fun weekend idea.</button>
+          <button data-prompt="Cheer me up a little.">Cheer me up a little.</button>
+          <button data-prompt="Give me a riddle.">Give me a riddle.</button>
+        </div></details>
+        <details class="try-group"><summary><svg><use href="#i-chat"/></svg><span>Follow up<small>“Explain that more simply.”</small></span><b>+</b></summary><div class="try-prompts">
+          <button data-prompt="Explain that more simply.">Explain that more simply.</button>
+          <button data-prompt="Tell me more.">Tell me more.</button>
+          <button data-prompt="Give me an example.">Give me an example.</button>
+          <button data-prompt="Explain that again.">Explain that again.</button>
+          <button data-prompt="Why is that?">Why is that?</button>
+        </div></details>
+        <details class="try-group"><summary><svg><use href="#i-mic"/></svg><span>Voice controls<small>“What can you do?”</small></span><b>+</b></summary><div class="try-prompts">
+          <button data-prompt="What can you do?">What can you do?</button>
+          <button data-prompt="How do I wake you?">How do I wake you?</button>
+          <button data-prompt="Go to sleep.">Go to sleep.</button>
+          <button data-prompt="Stop listening.">Stop listening.</button>
+          <button data-prompt="Stand by.">Stand by.</button>
+        </div></details>
+        <a class="weather-credit" href="https://open-meteo.com/" target="_blank" rel="noreferrer">Weather by Open-Meteo</a>
+      </aside>
+      <section class="companion" aria-label="Voice assistant">
+        <div class="robot-stage" id="robot-stage" role="button" tabindex="0" aria-label="Say hello to your robot" title="Move your cursor. I’m following you.">
+          <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+          <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+          <div class="robot-float" id="robot-float"><img class="robot-image" src="/assets/robot.png" alt="Pearl white robot with a glossy black visor and glowing cyan eyes" draggable="false"><canvas id="eyes" width="1000" height="1000" aria-hidden="true"></canvas></div>
+          <div class="floor-glow"></div>
+          <div class="hello-bubble" id="hello-bubble">Oh, hello there.</div>
+        </div>
+        <div class="voice-deck">
+          <div class="presence"><div class="waveform" id="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><strong id="presence-title" aria-live="polite">Ready when you are</strong><span id="presence-subtitle">Say “Hey In Site” or tap the microphone</span></div>
+          <div class="latest-response hidden" id="latest-response" tabindex="0" aria-label="Latest response"></div>
+          <div id="notice" class="notice hidden" role="status"></div>
+          <div class="voice-controls">
+            <button class="control-button" id="camera" aria-label="Ask what the camera sees" title="Ask what I see"><svg><use href="#i-camera"/></svg></button>
+            <button class="talk-button" id="listen"><svg><use href="#i-mic"/></svg><span>Talk to me</span></button>
+            <button class="control-button" id="type-message" aria-label="Type a message" title="Type a message"><svg><use href="#i-keyboard"/></svg></button>
+          </div>
+        </div>
+        <div class="camera-preview hidden" id="camera-preview"><img alt="Current camera capture"><span>Camera</span></div>
+      </section>
+      <section class="conversation-panel" id="conversation-panel" aria-labelledby="conversation-title" hidden>
+        <div class="panel-header"><h2 id="conversation-title">Conversation</h2><div><button id="voice-toggle" class="voice-toggle" aria-pressed="true" title="Toggle spoken responses"><svg><use href="#i-audio"/></svg><span>Voice on</span></button><button class="icon-button" id="chat-close" aria-label="Close conversation"><svg><use href="#i-close"/></svg></button></div></div>
+        <div class="chat-scroll" id="chat-scroll" tabindex="0" aria-label="Conversation history">
+          <div class="welcome" id="welcome"><svg><use href="#i-chat"/></svg><p>Your conversation will appear here.</p></div>
+          <div id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+          <div id="thinking" class="thinking hidden" role="status"><span></span><span></span><span></span><em>One moment…</em></div>
+        </div>
+        <div class="composer-area"><form id="prompt-form"><label class="sr-only" for="prompt">Your message</label><textarea id="prompt" rows="2" maxlength="4000" placeholder="Type a message…"></textarea><button type="submit" class="send-button" id="send" aria-label="Send message" title="Send message (Enter)"><svg><use href="#i-arrow"/></svg></button></form><div class="composer-footer"><span><kbd>Enter</kbd> send</span><span><kbd>Shift + Enter</kbd> new line</span></div></div>
+      </section>
+    </main>
+  </div>
+  <dialog id="devices-dialog" aria-labelledby="devices-title">
+    <form id="device-form">
+      <div class="device-heading"><div><svg><use href="#i-settings"/></svg><h2 id="devices-title">Devices</h2></div><button type="button" class="icon-button" id="devices-close" aria-label="Close devices"><svg><use href="#i-close"/></svg></button></div>
+      <div class="device-field"><label for="microphone-device"><svg><use href="#i-mic"/></svg> Microphone</label><select id="microphone-device"><option value="">System default</option></select><p id="microphone-status"></p></div>
+      <div class="device-field"><label for="camera-device"><svg><use href="#i-camera"/></svg> Camera</label><select id="camera-device"><option value="">Default camera</option></select><p id="camera-status"></p></div>
+      <p class="device-feedback" id="device-feedback" role="status" aria-live="polite"></p>
+      <div class="device-actions"><button type="button" class="secondary-button" id="devices-refresh"><svg><use href="#i-refresh"/></svg> Refresh</button><button type="submit" class="primary-button" id="devices-save">Apply devices</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

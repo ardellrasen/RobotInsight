@@ -1,0 +1,14 @@
+ddgs
+numpy
+ollama
+faster-whisper>=1.1,<2
+kokoro-onnx>=0.6,<1
+openwakeword
+opencv-python
+cv2-enumerate-cameras>=1.2.2
+pillow
+piper-tts
+scipy
+silero-vad
+sounddevice
+torch
