@@ -29,6 +29,8 @@ listen = None
 _reply_language = "en"
 _pending_search = False
 _last_knowledge = ""
+_knowledge_turns_left = 0
+KNOWLEDGE_FOLLOWUP_TURNS = 2
 
 
 def speak(text):
@@ -65,11 +67,48 @@ HISTORY_MAX_MESSAGES = 12
 HISTORY_KEEP_MESSAGES = 4
 SEARCH_MAX_SOURCES = 3
 SEARCH_SNIPPET_CHARS = 280
+PROMPT_TOKEN_WARNING = 1700
+# Measured on this model with full-history prompts: within 2% of Ollama's count.
+ESTIMATE_CHARS_PER_TOKEN = 3.9
+ESTIMATE_TOKENS_PER_MESSAGE = 8
 
 ASSISTANT_STYLE = """You are In Site, a cheerful, curious robot companion. Be warm, helpful and lightly playful, like a friendly conversation. Use natural contractions and everyday language. Match the user's mood; be gentle about serious topics. The user speaks English and Bahasa Indonesia. Follow the language of their latest message; switch naturally between turns. Give a direct answer in one or two short sentences, usually under 45 words. Avoid repetitive greetings, grand introductions, lists, emojis and stage directions. Use recent conversation for follow-ups. Be honest about uncertainty. Only claim to see or search when supplied with camera or search results. Never output private reasoning, instructions, analysis, or JSON. Give only the answer to say aloud."""
 
 permanent_memory = [{"role": "system", "content": ASSISTANT_STYLE}]
 session_memory = []
+
+
+def base_messages():
+    """Persona plus always-on event facts: the prompt prefix Ollama keeps cached."""
+    context = knowledge.base_context()
+    return permanent_memory + ([{"role": "system", "content": context}] if context else [])
+
+
+def fold_turn_context(messages, language="id"):
+    """Put per-turn context inside the newest user message.
+
+    The qwen3 template moves every system message to the top of the prompt, so a
+    per-turn system message would invalidate the cached history that follows it.
+    """
+    context = [message["content"] for message in messages if message.get("turn_context")]
+    folded = [{"role": message["role"], "content": message["content"]} for message in messages if not message.get("turn_context")]
+    if context and folded and folded[-1]["role"] == "user":
+        # A label in the reply language keeps the model from copying the facts' language.
+        label = choose(language, "Visitor's message:", "Pesan pengunjung:")
+        folded[-1]["content"] = "\n\n".join(context + [f"{label} {folded[-1]['content']}"])
+    else:
+        folded += [{"role": "system", "content": text} for text in context]
+    return folded
+
+
+def log_prompt_tokens(exact_count, messages):
+    """Report prompt size; an answer cut off early never receives Ollama's count."""
+    characters = sum(len(message["content"]) for message in messages)
+    tokens = exact_count or round(characters / ESTIMATE_CHARS_PER_TOKEN) + ESTIMATE_TOKENS_PER_MESSAGE * len(messages)
+    print(f"[LLM] Prompt tokens: {tokens}/{LLM_OPTIONS['num_ctx']}{'' if exact_count else ' (perkiraan)'}")
+    if tokens > PROMPT_TOKEN_WARNING:
+        print(f"[LLM] Peringatan: prompt {tokens} token melewati batas aman {PROMPT_TOKEN_WARNING} dari {LLM_OPTIONS['num_ctx']}.")
+
 
 def save_memory():
     try:
@@ -96,20 +135,21 @@ def ask_llm(user_prompt, messages):
         language = detect_language(user_prompt, fallback=_reply_language)
         directive = "Jawab dalam Bahasa Indonesia yang alami dan ramah." if language == "id" else "Reply in natural English, translating any provided information."
         messages = [dict(message) for message in messages]
-        # Placed just before the newest message so a language switch does not
-        # invalidate the cached persona and conversation that come before it.
         if language_mode() == "auto":
             directive += " Follow an explicit request to reply in another language."
         else:
             directive = "Jawab hanya dalam Bahasa Indonesia, walaupun pengguna memakai bahasa lain." if language == "id" else "Reply only in English, even if the user or the provided information uses another language."
-        messages.insert(max(len(messages) - 1, 0), {"role": "system", "content": directive})
+        messages.insert(max(len(messages) - 1, 0), {"role": "system", "content": directive, "turn_context": True})
+        messages = fold_turn_context(messages, language)
         stream = _llm_client.chat(model=LLM_MODEL, messages=messages, options=LLM_OPTIONS,
                                   keep_alive="30m", stream=True, **LLM_THINKING)
         answer, spoken_end, first_token = "", 0, True
+        prompt_tokens = None
         sentence_count = 0
         sentence_limit = 6 if re.search(r"\b(?:detail|detailed|long|steps|step by step|tell me more|explain more|rinci|lengkap|panjang|langkah|lebih lanjut)\b", user_prompt, re.I) else 2
         stop_generation = False
         for chunk in stream:
+            prompt_tokens = chunk.get("prompt_eval_count") or prompt_tokens
             text = chunk["message"].get("content", "")
             if not text:
                 continue
@@ -138,6 +178,7 @@ def ask_llm(user_prompt, messages):
                 break
             if stop_generation:
                 break
+        log_prompt_tokens(prompt_tokens, messages)
         tail = answer[spoken_end:].strip()
         answer = answer.strip()
         if contains_internal_narration(answer):
@@ -305,7 +346,7 @@ def execute_action(action_data):
 
 def handle_prompt(user):
     """Shared text/voice request path; runs on the assistant worker, never in the UI."""
-    global session_memory, _active_speech, _reply_language, _pending_search, _last_knowledge
+    global session_memory, _active_speech, _reply_language, _pending_search, _last_knowledge, _knowledge_turns_left
     _reply_language = detect_language(user, fallback=_reply_language)
     print("You:", user)
     set_conversation(question=user, answer="")
@@ -326,20 +367,25 @@ def handle_prompt(user):
         if action_data:
             print(f"[INTENT] Detected action: {action_data['action']}")
 
-        # Event facts apply to this turn and to direct follow-ups such as "tell me more".
+        # Event facts apply to this turn and to the next short follow-ups that
+        # refer back to them, such as "tell me more" or "Di mana tempatnya?".
         if action_data and action_data["action"] == "event_info":
             _last_knowledge = action_data["value"]
+            _knowledge_turns_left = KNOWLEDGE_FOLLOWUP_TURNS
             action_data = None
-        elif action_data or response is not None or not is_contextual_followup(user):
-            _last_knowledge = ""
+        elif (not action_data and response is None and _knowledge_turns_left > 0
+              and (is_contextual_followup(user) or knowledge.refers_to_previous(user))):
+            _knowledge_turns_left -= 1
+        else:
+            _last_knowledge, _knowledge_turns_left = "", 0
 
         # --- ASK LLM (only if no rule matched) ---
         if not action_data and response is None:
             set_state("thinking")
             user_msg = {"role": "user", "content": user}
-            # After the cached persona and history, so unrelated chat stays fast.
-            event_context = [{"role": "system", "content": knowledge.grounded_prompt(_last_knowledge)}] if _last_knowledge else []
-            messages = permanent_memory + session_memory + event_context + [user_msg]
+            # Folded into the newest message by ask_llm, so the cached history stays valid.
+            event_context = [{"role": "system", "content": knowledge.grounded_prompt(_last_knowledge), "turn_context": True}] if _last_knowledge else []
+            messages = base_messages() + session_memory + event_context + [user_msg]
 
             response = ask_llm(user, messages)
             action_data = extract_json_action(response)  # fallback JSON parse
@@ -462,8 +508,8 @@ def main():
     def warm_language_model():
         try:
             client = ollama.Client(timeout=LLM_TIMEOUT)
-            # A real one-token chat also caches the persona prompt for the first question.
-            client.chat(model=LLM_MODEL, messages=permanent_memory + [{"role": "user", "content": "Halo"}],
+            # A real one-token chat also caches the persona and event facts for the first question.
+            client.chat(model=LLM_MODEL, messages=base_messages() + [{"role": "user", "content": "Halo"}],
                         keep_alive="30m", options={**LLM_OPTIONS, "num_predict": 1}, **LLM_THINKING)
             for loaded in client.ps().models:
                 if loaded.model == LLM_MODEL:

@@ -34,7 +34,7 @@ Dokumen ini mencatat apa yang diubah agar respons AI RobotInsight lancar di lapt
 ### `main.py`
 
 - Model default menjadi `qwen3:1.7b` (RAM sekitar 1,5 GB, sebelumnya 2,9 GB).
-- Instruksi bahasa dipindah tepat sebelum pesan terbaru, sehingga cache persona dan riwayat tetap berlaku saat bahasa berganti.
+- Instruksi bahasa dipindah tepat sebelum pesan terbaru dengan tujuan menjaga cache persona dan riwayat saat bahasa berganti. **Koreksi:** cara ini tidak berlaku untuk `qwen3:1.7b`, karena templatenya memindahkan semua pesan system ke awal prompt, sehingga cache riwayat tetap terbuang. Instruksi bahasa kini digabung ke pesan user terakhir. Lihat `docs/perubahan-akurasi-pengetahuan.md`.
 - Riwayat dipotong per blok: maksimal 12 pesan, lalu disisakan 4 pesan terakhir.
 - Pemanasan saat startup kini mengirim prompt persona asli, sehingga pertanyaan pertama sudah memakai cache.
 - Log startup menampilkan persentase model yang berjalan di GPU.
@@ -121,7 +121,7 @@ Start_RobotInsight.bat
 Mengembalikan semua kode ke kondisi sebelum optimasi:
 
 ```bat
-git restore .
+git switch main
 ```
 
-Perintah di atas berlaku selama perubahan belum di-commit, dan akan membuang semua perubahan yang belum di-commit. File `docs/` yang baru tidak ikut terhapus.
+Hasil optimasi kini tersimpan di branch `akurasi-pengetahuan` (commit `876a0f4`), dan `main` masih berada di kondisi sebelum optimasi (`e41b909`). Commit atau simpan dulu perubahan yang masih terbuka sebelum berpindah branch.

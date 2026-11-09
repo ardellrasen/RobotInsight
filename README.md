@@ -133,6 +133,22 @@ You can also say “Look on the internet” or “Cari di internet” without a 
 - **A search asks what to look for:** give a topic, such as “NASA Artemis news.” A bare “Look on the internet” starts a topic prompt rather than searching punctuation.
 - **Web search is unavailable:** verify your internet connection and try again. The app tries alternate free search providers, but provider outages or blocked connections can still prevent results. A failed search does not mean the local chat model has lost its connection.
 
+## Event knowledge
+
+The robot answers ITB Insight questions from `docs/pengetahuan-itb-insight.md`. The event committee can change that file without touching the code, and edits apply on the next question. Each `## Title` is one section, and these optional lines control it:
+
+| Line | Effect |
+| --- | --- |
+| `Selalu dipakai: ya` | Sends the section with every chat turn. Keep it to about 40–60 words. |
+| `Kata kunci utama:` | 3 points. One main keyword is enough to pick the section. |
+| `Kata kunci pendukung:` | 1 point. Needs a second keyword before the section is picked. |
+| `Kata kunci longgar:` | 3 points and tolerates small mishearing, such as “pley tek”. Use it for names only. |
+| `Kata kunci:` | The older form, treated as `Kata kunci utama:`. |
+
+The highest-scoring section is used, plus a second one only when its score is within 1 point. A short follow-up that refers back, such as “Di mana tempatnya?”, keeps the facts for up to 2 more turns. Another action, another section, or an unrelated question clears them.
+
+Each model turn logs `[LLM] Prompt tokens: N/2048`, and a warning appears above 1700. When an answer is cut off after its sentence limit, Ollama never reports the count, so the log shows an estimate marked `(perkiraan)`.
+
 ## Privacy and network use
 
 Speech recognition, language generation, vision analysis, and text-to-speech run on the PC. The assistant sends web-search queries to its search provider when web lookup is needed, and requested cities to Open-Meteo for weather. The first run downloads Python packages and model files. No API key is required.
