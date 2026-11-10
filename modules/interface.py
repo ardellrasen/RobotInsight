@@ -29,19 +29,50 @@ _revision = 0
 _voice_status = {"wakeword": "starting", "message": "Starting voice input", "level": 0.0, "score": 0.0}
 WEB_ROOT = Path(__file__).resolve().parent.parent / "ui"
 STATES = {"idle", "warmup", "listening", "transcribing", "thinking", "searching", "capturing", "speaking", "error"}
+RESPONDING_STATES = {"thinking", "searching", "capturing", "speaking"}
+# Each Stop starts a new generation; work from an older generation has been stopped.
+_stop_generation = 0
 
 
-def set_state(state):
+def set_state(state, turn=None):
+    """A `turn` older than the current stop generation can no longer change the state."""
     global _current_state
     if state not in STATES:
         raise ValueError(f"Unknown UI state: {state}")
     with _lock:
-        _current_state = state
+        if turn is None or turn == _stop_generation:
+            _current_state = state
 
 
 def get_state():
     with _lock:
         return _current_state
+
+
+def stop_generation():
+    with _lock:
+        return _stop_generation
+
+
+def stop_response():
+    """Stop the response in progress and report whether there was one."""
+    global _stop_generation, _current_state, _capture_image
+    with _lock:
+        if _current_state not in RESPONDING_STATES:
+            return False
+        _stop_generation += 1
+        _current_state = "idle"
+        _capture_image = None
+        return True
+
+
+def mark_stopped(text):
+    """Close a question that was stopped before any of its answer appeared."""
+    global _revision
+    with _lock:
+        if _conversation and _conversation[-1]["role"] == "user":
+            _conversation.append({"role": "assistant", "content": text})
+            _revision += 1
 
 
 def set_conversation(question=None, answer=None):
@@ -193,6 +224,8 @@ class _Handler(BaseHTTPRequestHandler):
             with _lock:
                 _voice_enabled = bool(data.get("enabled", True))
             return self._json(200, {"ok": True})
+        elif path == "/api/stop":
+            return self._json(200, {"stopped": stop_response()})
         elif path == "/api/language":
             try:
                 set_language_mode(data.get("mode"), remember=not _preview)

@@ -18,7 +18,7 @@ Say **“Hey In Site”** first, wait for its listening expression, then try one
 | Appearance question | “How do I look?” | Uses the camera to answer. |
 | General conversation | “Tell me a short joke.” | Replies using the local language model without web search. |
 | Spoken punctuation cleanup | “Say this sentence: Hello, world! I’m ready.” | Speaks the words without reading punctuation marks aloud. |
-| Follow-up conversation | After an answer, say “Explain more,” “Why?” or “Can you explain that more simply?” | Uses the previous answer as context and gives a short follow-up without starting a new web search. |
+| Follow-up conversation | After an answer, say “Hey In Site” or click the microphone, then say “Explain more,” “Why?” or “Can you explain that more simply?” | Uses the previous answer as context and gives a short follow-up without starting a new web search. |
 | Return to standby | After the greeting, stay silent until the silence timeout. | Returns to waiting for the wake word without another spoken interruption. |
 
 The web, language-model, microphone, and camera phrases require their matching service or device to be available. In particular, web-search answers also need Ollama running in the current configuration.
@@ -30,7 +30,8 @@ The web, language-model, microphone, and camera phrases require their matching s
 - Speak a sentence longer than five seconds. It should not be cut off at the old five-second limit.
 - Ask “What's the weather in Jakarta tomorrow?” for a direct weather result.
 - Ask “What can you do?” to hear the supported capabilities.
-- Say “Go to sleep” to end follow-up listening and return to the wake word.
+- Click **Stop** while the robot is answering. The voice ends at once and the microphone button returns.
+- After an answer finishes, keep talking without the wake word. The robot must not respond.
 - Expand the eight “Try asking” groups to see five examples in each.
 
 The automated speech checks use synthetic audio rather than the user's voice. Real-room wake accuracy and STT accuracy still need to be checked with the user's accent and selected microphone.

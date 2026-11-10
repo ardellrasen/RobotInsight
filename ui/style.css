@@ -73,6 +73,8 @@ main { height: calc(100% - 78px); position: relative; }
 .talk-button { display: flex; align-items: center; gap: 10px; justify-content: center; min-width: 162px; height: 54px; border-radius: 30px; background: var(--cyan); color: #153a3e; border: 1px solid #a9f9ed; box-shadow: 0 0 36px #8be8e00c; font-size: 13px; font-weight: 600; transition: box-shadow .2s, transform .2s; }
 .talk-button:hover { background: #b0fff3; box-shadow: 0 0 30px #8be8e020; transform: translateY(-1px); }
 .talk-button.listening { box-shadow: 0 0 0 6px #8be8e00a, 0 0 32px #8be8e030; }
+.stop-button { background: #f2a79c; color: #4a1a14; border-color: #ffc8bf; box-shadow: 0 0 36px #f2a79c14; }
+.stop-button:hover { background: #ffc2b8; box-shadow: 0 0 30px #f2a79c30; }
 .latest-response { max-height: 72px; width: 100%; overflow: auto; padding: 12px 12px 0; text-align: center; font-size: 13px; line-height: 1.75; color: #c1d2da; scrollbar-width: thin; scrollbar-color: #34414b transparent; white-space: pre-wrap; overflow-wrap: anywhere; }
 .notice { max-width: 530px; text-align: center; font-size: 11px; color: #d4b895; line-height: 1.6; padding-top: 10px; }
 .conversation-panel { position: absolute; right: 0; top: 20px; bottom: 0; width: 350px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(145deg, #151b23, #10151c); overflow: hidden; box-shadow: 0 15px 50px #0003; z-index: 5; }

@@ -46,7 +46,7 @@ For your first voice conversation:
 1. Open **Devices**, select your microphone and camera, and apply your choices.
 2. Wait for the standby message **Listening for “Hey In Site”**.
 3. Say the wake phrase, pause for the listening expression, then ask your question in English or Indonesian.
-4. Continue with a follow-up after the spoken answer. Say **“Go to sleep”** or **“Istirahat”** to return to wake-word standby. Silence also ends follow-up listening.
+4. After each answer the robot returns to standby. To ask again, say the wake phrase or click the microphone. While it is responding, the microphone is replaced by a **Stop** button that ends the response at once.
 
 ## Konfigurasi
 

@@ -133,19 +133,22 @@ def prepare(text, language=None):
 
 def speak(text, language=None):
     import sounddevice as sd
-    from modules.interface import voice_enabled
+    from modules.interface import stop_generation, voice_enabled
     if not voice_enabled():
         return
+    generation = stop_generation()
+    def silenced():
+        return not voice_enabled() or stop_generation() != generation
     try:
         started = time.monotonic()
         with _prepared_lock:
             pending = _prepared.pop((text, language), None)
         audio, rate = pending.result() if pending else synthesize(text, language=language)
         print(f"[TTS] Audio ready in {time.monotonic() - started:.2f}s")
-        if len(audio) and voice_enabled():
+        if len(audio) and not silenced():
             sd.play(audio, rate)
             while sd.get_stream().active:
-                if not voice_enabled():
+                if silenced():
                     sd.stop()
                     break
                 time.sleep(0.03)
@@ -155,23 +158,24 @@ def speak(text, language=None):
 
 class SpeechSession:
     """Speak completed sentences as generation continues; always join before recording."""
-    def __init__(self, speaker, enabled, prepare=None):
+    def __init__(self, speaker, enabled, prepare=None, turn=None):
         self.speaker = speaker
         self.enabled = enabled
         self.prepare = prepare
+        self.turn = turn
         self.items = queue.Queue(maxsize=16)
         self.sentences = 0
         self.thread = threading.Thread(target=self._run, daemon=True, name="Robot speech")
         self.thread.start()
 
     def _run(self):
-        from modules.interface import set_state
+        from modules.interface import set_state, stop_generation
         while True:
             sentence = self.items.get()
             if sentence is None:
                 return
-            if self.enabled():
-                set_state("speaking")
+            if self.enabled() and self.turn in (None, stop_generation()):
+                set_state("speaking", turn=self.turn)
                 try:
                     self.speaker(sentence)
                 except Exception as error:

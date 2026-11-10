@@ -36,6 +36,10 @@ function updateControls() {
   $("listen").classList.toggle("listening", state === "listening");
   $("listen").querySelector("span").textContent = state === "listening" ? "Listening…" : "Talk to me";
   $("devices-save").disabled = deviceLoading || !["idle", "error"].includes(state);
+  // Stop takes the microphone's place while the microphone cannot be used anyway.
+  const responding = connected && !preview && ["thinking", "searching", "capturing", "speaking"].includes(state);
+  $("stop").classList.toggle("hidden", !responding);
+  $("listen").classList.toggle("hidden", responding);
 }
 function updateState(next) {
   state = next;
@@ -154,6 +158,8 @@ $("prompt").addEventListener("keydown", event => {if (event.key === "Enter" && !
 document.querySelectorAll("[data-prompt]").forEach(button => button.addEventListener("click", () => submitPrompt(button.dataset.prompt)));
 $("camera").addEventListener("click", () => submitPrompt("What do you see?"));
 $("listen").addEventListener("click", async () => {pending = true; updateControls(); try {await api("/api/listen", {}); notice("Microphone activated. Go ahead and speak."); await new Promise(resolve => setTimeout(resolve, 600));} catch (error) {notice(error.message);} finally {pending = false; updateControls();}});
+// The pause keeps a double click on Stop from also pressing the microphone that replaces it.
+$("stop").addEventListener("click", async () => {pending = true; try {await api("/api/stop", {}); updateState("idle"); await new Promise(resolve => setTimeout(resolve, 600));} catch (error) {notice(error.message);} finally {pending = false; updateControls();}});
 $("voice-toggle").addEventListener("click", async () => {try {await api("/api/voice", {enabled: !voice}); voice = !voice; $("voice-toggle").setAttribute("aria-pressed", String(voice)); $("voice-toggle").querySelector("span").textContent = voice ? "Voice on" : "Voice off";} catch (error) {notice(error.message);}});
 function setChatOpen(open, focusInput = false) {
   chatOpen = open;

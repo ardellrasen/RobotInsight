@@ -2,14 +2,17 @@
 import atexit
 import json
 import sys
+import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from modules import interface as ui
+from modules import interface as ui, text_to_speech
 import main as assistant
 
 # Importing the app must not overwrite personal memory during tests.
@@ -110,6 +113,118 @@ class InterfaceTests(unittest.TestCase):
             assistant.handle_prompt("What do you see?")
         self.assertEqual(ui._snapshot()["messages"][-1]["content"], "A desk.")
         self.assertEqual(assistant.detect_intent("Search for space discoveries.")["action"], "search_web")
+
+    def test_stop_endpoint_only_acts_on_a_response(self):
+        self.assertEqual(self.request("/api/stop", {}, authorized=False)[0], 403)
+        generation = ui.stop_generation()
+        self.assertEqual(self.request("/api/stop", {}), (200, {"stopped": False}))
+        ui.set_state("listening")
+        self.assertEqual(self.request("/api/stop", {}), (200, {"stopped": False}))
+        self.assertEqual(ui.stop_generation(), generation)
+        for state in ("thinking", "searching", "capturing", "speaking"):
+            ui.set_state(state)
+            self.assertEqual(self.request("/api/stop", {}), (200, {"stopped": True}))
+            self.assertEqual(ui.get_state(), "idle")
+
+    def test_stopped_response_cannot_change_the_state(self):
+        ui.set_state("thinking")
+        turn = ui.stop_generation()
+        ui.stop_response()
+        ui.set_state("speaking", turn=turn)
+        self.assertEqual(ui.get_state(), "idle")
+
+    def test_stop_returns_at_once_and_a_late_answer_is_discarded(self):
+        started, release = threading.Event(), threading.Event()
+        def slow_model(*_args, **_kwargs):
+            started.set()
+            release.wait(5)
+            return "A late answer."
+        with patch.object(assistant, "ask_llm", side_effect=slow_model), patch.object(assistant, "speak") as speak:
+            caller = threading.Thread(target=assistant.respond, args=("Tell me a story",), daemon=True)
+            caller.start()
+            self.assertTrue(started.wait(3))
+            self.assertEqual(ui.get_state(), "thinking")
+            self.assertEqual(self.request("/api/stop", {})[1], {"stopped": True})
+            caller.join(1)
+            self.assertFalse(caller.is_alive())  # The model is still blocked at this point.
+            workers = [t for t in threading.enumerate() if t.name == "Assistant request"]
+            release.set()
+            for worker in workers:
+                worker.join(3)
+        speak.assert_not_called()
+        self.assertEqual(ui.get_state(), "idle")
+        self.assertEqual(assistant.session_memory, [])
+        self.assertEqual([m["content"] for m in ui._snapshot()["messages"]][0], "Tell me a story")
+        self.assertNotIn("A late answer.", [m["content"] for m in ui._snapshot()["messages"]])
+        self.assertIn(ui._snapshot()["messages"][-1]["content"], ("Stopped.", "Dihentikan."))
+
+    def test_stop_closes_the_stream_and_keeps_the_partial_text(self):
+        closed = []
+        def stream():
+            try:
+                yield {"message": {"content": "Halfway"}}
+                ui.set_state("thinking")
+                ui.stop_response()
+                yield {"message": {"content": " there."}}
+                self.fail("The stream continued after Stop.")
+            finally:
+                closed.append(True)
+        client = Mock()
+        client.chat.return_value = stream()
+        speech = Mock()
+        ui.set_conversation(question="Hello")
+        turn = ui.stop_generation()
+        with patch.object(assistant, "_llm_client", client), patch.object(assistant, "_active_speech", speech):
+            with self.assertRaises(assistant.TurnStopped):
+                assistant.ask_llm("Hello", [], turn=turn)
+        self.assertEqual(closed, [True])
+        speech.add.assert_not_called()
+        self.assertEqual(ui._snapshot()["messages"][-1]["content"], "Halfway")
+
+    def test_stop_ends_playback_of_the_current_sentence(self):
+        fake_sound = Mock()
+        fake_sound.get_stream.return_value.active = True
+        def sound_stops():
+            fake_sound.get_stream.return_value.active = False
+        fake_sound.stop.side_effect = sound_stops
+        fake_sound.play.side_effect = lambda *_args: (ui.set_state("speaking"), ui.stop_response())
+        with patch.dict(sys.modules, {"sounddevice": fake_sound}), patch("modules.text_to_speech.synthesize", return_value=(np.ones(10), 22050)):
+            text_to_speech.speak("Halo.", language="id")
+        fake_sound.stop.assert_called_once()
+
+    def test_stop_skips_the_sentences_still_queued(self):
+        ui.set_state("thinking")
+        speaker = Mock()
+        session = text_to_speech.SpeechSession(speaker, lambda: True, turn=ui.stop_generation())
+        ui.stop_response()
+        session.add("Should stay silent.")
+        session.finish()
+        speaker.assert_not_called()
+        self.assertEqual(ui.get_state(), "idle")
+
+    def test_answer_returns_to_standby_without_listening_again(self):
+        closed = threading.Event()
+        states_at_wake = []
+        def wake(**_kwargs):
+            states_at_wake.append(ui.get_state())
+            if len(states_at_wake) == 1:
+                return True
+            closed.set()
+            return False
+        detector = Mock()
+        detector.start_listening.side_effect = wake
+        listen = Mock(return_value="Halo robot")
+        with patch.object(assistant, "start_ui"), patch.object(assistant, "restore_language_mode"), \
+                patch("ollama.Client"), patch.object(assistant, "is_closed", closed.is_set), \
+                patch("modules.text_to_speech.initialize"), patch("modules.text_to_speech.warm_up"), \
+                patch("modules.speech_to_text.initialize"), patch("modules.speech_to_text.listen", listen), \
+                patch("modules.wakeword.WakeWordDetector", return_value=detector), \
+                patch.object(assistant, "handle_prompt") as handle:
+            assistant.main()
+        handle.assert_called_once()
+        self.assertEqual(handle.call_args.args[0], "Halo robot")
+        listen.assert_called_once()
+        self.assertEqual(states_at_wake[-1], "idle")
 
     def test_long_responses_are_preserved_as_text(self):
         answer = "<script>alert('not executable')</script> " + "Long response. " * 300

@@ -18,6 +18,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from modules.interface import (
     start as start_ui, stop as stop_ui, set_state, set_conversation,
     next_input, has_pending_input, is_closed, voice_enabled, update_answer, set_voice_status,
+    stop_generation, mark_stopped,
 )
 from modules import devices, knowledge
 from modules.language import detect_language, choose, is_standby, language_mode, restore_language_mode
@@ -124,7 +125,20 @@ _active_speech = None
 _llm_client = None
 
 
-def ask_llm(user_prompt, messages):
+class TurnStopped(Exception):
+    """The user pressed Stop during this response."""
+
+
+def is_stopped(turn):
+    return turn is not None and turn != stop_generation()
+
+
+def check_stopped(turn):
+    if is_stopped(turn):
+        raise TurnStopped
+
+
+def ask_llm(user_prompt, messages, turn=None):
     global _llm_client
     answer, spoken_end = "", 0
     try:
@@ -147,8 +161,11 @@ def ask_llm(user_prompt, messages):
         prompt_tokens = None
         sentence_count = 0
         sentence_limit = 6 if re.search(r"\b(?:detail|detailed|long|steps|step by step|tell me more|explain more|rinci|lengkap|panjang|langkah|lebih lanjut)\b", user_prompt, re.I) else 2
-        stop_generation = False
+        end_generation = False
         for chunk in stream:
+            if is_stopped(turn):
+                getattr(stream, "close", lambda: None)()  # Also ends generation in Ollama.
+                raise TurnStopped
             prompt_tokens = chunk.get("prompt_eval_count") or prompt_tokens
             text = chunk["message"].get("content", "")
             if not text:
@@ -174,10 +191,11 @@ def ask_llm(user_prompt, messages):
                 if sentence_count >= sentence_limit:
                     answer = answer[:end]
                     getattr(stream, "close", lambda: None)()
-                    stop_generation = True
+                    end_generation = True
                 break
-            if stop_generation:
+            if end_generation:
                 break
+        check_stopped(turn)
         log_prompt_tokens(prompt_tokens, messages)
         tail = answer[spoken_end:].strip()
         answer = answer.strip()
@@ -190,7 +208,10 @@ def ask_llm(user_prompt, messages):
             _active_speech.add(tail)
         print(f"[LLM] Complete in {time.monotonic() - started:.2f}s")
         return answer
+    except TurnStopped:
+        raise
     except Exception as e:
+        check_stopped(turn)
         print(f"LLM Error: {e}")
         failure = choose(_reply_language, "I lost the model connection. Could you try that again?", "Koneksi ke model terputus. Bisa coba sekali lagi?")
         if _active_speech is not None:
@@ -322,7 +343,7 @@ def execute_action(action_data):
         return choose(_reply_language, f"The current time is {now}.", datetime.datetime.now().strftime("Sekarang pukul %H.%M."))
 
     elif action == "get_capabilities":
-        return choose(_reply_language, "Say Hey Insight to wake me. I can check weather, search the web, describe the camera view, tell the time and date, explain ideas, chat and tell stories. Say go to sleep when you’re done.", "Ucapkan Hey Insight untuk membangunkanku. Aku bisa mengecek cuaca, mencari di internet, melihat lewat kamera, memberi tahu jam dan tanggal, menjelaskan ide, mengobrol, dan bercerita. Ucapkan istirahat kalau sudah selesai.")
+        return choose(_reply_language, "Say Hey Insight to wake me. I can check weather, search the web, describe the camera view, tell the time and date, explain ideas, chat and tell stories.", "Ucapkan Hey Insight untuk membangunkanku. Aku bisa mengecek cuaca, mencari di internet, melihat lewat kamera, memberi tahu jam dan tanggal, menjelaskan ide, mengobrol, dan bercerita.")
 
     elif action == "get_date":
         if _reply_language == "id":
@@ -344,15 +365,16 @@ def execute_action(action_data):
 
     return None  # Unknown action — fall through to plain text
 
-def handle_prompt(user):
+def handle_prompt(user, turn=None):
     """Shared text/voice request path; runs on the assistant worker, never in the UI."""
     global session_memory, _active_speech, _reply_language, _pending_search, _last_knowledge, _knowledge_turns_left
+    turn = stop_generation() if turn is None else turn
     _reply_language = detect_language(user, fallback=_reply_language)
     print("You:", user)
     set_conversation(question=user, answer="")
-    set_state("thinking")
+    set_state("thinking", turn=turn)
     from modules.text_to_speech import SpeechSession
-    session = SpeechSession(speak, voice_enabled, prepare=prepare_speech)
+    session = SpeechSession(speak, voice_enabled, prepare=prepare_speech, turn=turn)
     _active_speech = session
     try:
         # --- Rule-based intent check FIRST (fast, deterministic) ---
@@ -381,32 +403,33 @@ def handle_prompt(user):
 
         # --- ASK LLM (only if no rule matched) ---
         if not action_data and response is None:
-            set_state("thinking")
             user_msg = {"role": "user", "content": user}
             # Folded into the newest message by ask_llm, so the cached history stays valid.
             event_context = [{"role": "system", "content": knowledge.grounded_prompt(_last_knowledge), "turn_context": True}] if _last_knowledge else []
             messages = base_messages() + session_memory + event_context + [user_msg]
 
-            response = ask_llm(user, messages)
+            response = ask_llm(user, messages, turn=turn)
             action_data = extract_json_action(response)  # fallback JSON parse
 
         # --- Execute action if detected ---
         if action_data:
             if action_data.get("action") == "search_web":
-                set_state("searching")
+                set_state("searching", turn=turn)
             tool_result = execute_action(action_data)
+            check_stopped(turn)
 
             if tool_result == "IMAGE_CAPTURE_TRIGGERED":
-                set_state("capturing")
+                set_state("capturing", turn=turn)
                 vision_result = capture_and_analyze(user)
-                set_state("thinking")
+                check_stopped(turn)
+                set_state("thinking", turn=turn)
                 print(f"[VISION] Result: {vision_result}")
                 response = vision_result
                 if _reply_language == "id":
-                    response = ask_llm(user, [{"role": "system", "content": final_only_system("Sampaikan deskripsi kamera yang diberikan dalam Bahasa Indonesia. Jangan menambahkan benda atau fakta.")}, {"role": "user", "content": f"Pertanyaan: {user}\nDeskripsi kamera: {vision_result}"}])
+                    response = ask_llm(user, [{"role": "system", "content": final_only_system("Sampaikan deskripsi kamera yang diberikan dalam Bahasa Indonesia. Jangan menambahkan benda atau fakta.")}, {"role": "user", "content": f"Pertanyaan: {user}\nDeskripsi kamera: {vision_result}"}], turn=turn)
 
             elif action_data.get("action") == "search_web" and isinstance(tool_result, dict):
-                set_state("thinking")
+                set_state("thinking", turn=turn)
                 if tool_result.get("type") == "search_clarification":
                     _pending_search = True
                     response = choose(_reply_language, "Sure! What would you like me to search for?", "Boleh! Mau cari apa di internet?")
@@ -444,7 +467,7 @@ def handle_prompt(user):
                             {"role": "system", "content": search_system},
                             {"role": "user", "content": json.dumps(search_context, ensure_ascii=False)},
                         ]
-                        response = ask_llm(user, grounded_messages)
+                        response = ask_llm(user, grounded_messages, turn=turn)
 
             elif tool_result is not None:
                 response = str(tool_result)
@@ -453,6 +476,7 @@ def handle_prompt(user):
         if not response:
             response = choose(_reply_language, "I missed that. Could you repeat it?", "Aku belum menangkap maksudmu. Bisa diulangi?")
 
+        check_stopped(turn)
         update_answer(response)
 
         # Update memory
@@ -466,9 +490,33 @@ def handle_prompt(user):
             # Long camera/weather replies start sooner when voiced sentence by sentence.
             for sentence in re.findall(r".+?(?:[.!?](?:\s+|$)|$)", response.strip(), re.S):
                 session.add(sentence)
+    except TurnStopped:
+        print("[ASSISTANT] Response stopped by the user.")
     finally:
-        _active_speech = None
+        # A stopped request can end after the next one has already begun.
+        if _active_speech is session:
+            _active_speech = None
         session.finish()
+
+
+def respond(user):
+    """Run a request on its own thread so Stop works during blocking model, search or camera calls."""
+    turn = stop_generation()
+
+    def run():
+        try:
+            handle_prompt(user, turn)
+        except Exception as error:
+            print(f"[ASSISTANT] Request failed: {error}")
+            if not is_stopped(turn):
+                set_conversation(answer="Something interrupted that request. Please try again.")
+
+    worker = threading.Thread(target=run, daemon=True, name="Assistant request")
+    worker.start()
+    while worker.is_alive() and not is_stopped(turn):
+        worker.join(0.03)
+    if is_stopped(turn):
+        mark_stopped(choose(_reply_language, "Stopped.", "Dihentikan."))
 
 
 def main():
@@ -522,10 +570,8 @@ def main():
     retry_at = 0
 
     print("Robot started. Type a message, click the microphone, or say 'Hey In Site'.")
-    followup = False
     while not is_closed():
         if devices.consume_microphone_change():
-            followup = False
             retry_at = 0
         if wakeword is None and listen is not None and time.monotonic() >= retry_at:
             try:
@@ -536,16 +582,6 @@ def main():
                 set_voice_status(wakeword="unavailable", message="Wake word unavailable. Check setup and Devices.")
                 retry_at = time.monotonic() + 10
         request = next_input()
-        if request is None and followup and listen is not None:
-            set_state("listening")
-            user = listen(interrupt=has_pending_input)
-            request = next_input()
-            if request is None and user and len(user.strip()) >= 2:
-                request = {"type": "text", "text": user}
-            if request is None:
-                followup = False
-                set_state("idle")
-                continue
         if request is None:
             set_state("idle")
             if wakeword is None:
@@ -574,28 +610,20 @@ def main():
             if not user or len(user.strip()) < 2:
                 set_conversation(answer="I didn’t catch that. Try the microphone again, or type a message.")
                 continue
-            followup = True
         else:
             user = request["text"]
         _reply_language = detect_language(user, fallback=_reply_language)
         if is_standby(user):
             _pending_search = False
-            followup = False
             response = choose(_reply_language, "You got it. Say ‘Hey Insight’ when you need me!", "Siap! Ucapkan Hey Insight kalau butuh bantuan lagi, ya.")
             set_conversation(question=user, answer=response)
             set_state("speaking")
             speak(response)
             set_state("idle")
             continue
-        try:
-            handle_prompt(user)
-        except Exception as error:
-            print(f"[ASSISTANT] Request failed: {error}")
-            set_conversation(answer="Something interrupted that request. Please try again.")
-        # Playback is joined before recording resumes; allow its last sound to decay.
-        if followup:
-            time.sleep(0.12)
-        set_state("listening" if followup else "idle")
+        respond(user)
+        # New input only comes from the microphone button, "Hey Insight", or typing.
+        set_state("idle")
 
 
 if __name__ == "__main__":
