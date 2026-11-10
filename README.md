@@ -31,7 +31,7 @@ The default Qwen3 1.7B chat model is quantized to about 1.4 GB. First setup also
 3. Open PowerShell or Command Prompt and clone this repository:
 
    ```powershell
-   git clone https://github.com/naufshidqiz/RobotInsight.git
+   git clone https://github.com/ardellrasen/RobotInsight.git
    cd RobotInsight
    ```
 
@@ -47,6 +47,57 @@ For your first voice conversation:
 2. Wait for the standby message **Listening for “Hey In Site”**.
 3. Say the wake phrase, pause for the listening expression, then ask your question in English or Indonesian.
 4. Continue with a follow-up after the spoken answer. Say **“Go to sleep”** or **“Istirahat”** to return to wake-word standby. Silence also ends follow-up listening.
+
+## Konfigurasi
+
+RobotInsight bisa langsung dijalankan tanpa konfigurasi, tanpa file `.env`, dan tanpa API key. Pengaturan hanya perlu diubah kalau ingin menyesuaikan perangkat, bahasa, model, atau materi acara.
+
+| Yang ingin diubah | Tempat mengubahnya |
+| --- | --- |
+| Mikrofon dan kamera | Panel **Devices** di antarmuka, lalu klik **Apply devices**. |
+| Bahasa (ID, EN, Auto) | Tombol bahasa di bagian atas antarmuka. Pertama kali dijalankan, bahasanya ID. |
+| Materi yang dijawab robot tentang acara | File `docs/pengetahuan-itb-insight.md`, lihat [Event knowledge](#event-knowledge). |
+| Model, suara, dan kepekaan wake word | Environment variable, lihat di bawah. |
+
+### Environment variable
+
+Di Command Prompt, buka folder proyek, atur nilainya, lalu jalankan launcher dari jendela yang sama:
+
+```bat
+set ROBOT_WAKE_THRESHOLD=0.35
+set ROBOT_LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M
+Start_RobotInsight.bat
+```
+
+Di PowerShell:
+
+```powershell
+$env:ROBOT_WAKE_THRESHOLD = "0.35"
+.\Start_RobotInsight.bat
+```
+
+Nilai di atas hanya berlaku untuk jendela itu. Kalau `Start_RobotInsight.bat` dijalankan dengan klik dua kali, nilainya harus disimpan permanen dulu dengan `setx ROBOT_WAKE_THRESHOLD 0.35`, lalu berlaku di jendela yang dibuka setelahnya.
+
+| Variabel | Default | Fungsi |
+| --- | --- | --- |
+| `ROBOT_LLM_MODEL` | `qwen3:1.7b` | Model chat Ollama. Launcher mengunduhnya kalau belum ada. `qwen3:4b-instruct-2507-q4_K_M` memberi jawaban lebih baik, tetapi lebih lambat. |
+| `ROBOT_USE_IGPU` | `1` | `1` menjalankan Ollama khusus di GPU terintegrasi lewat port 11435. `0` memakai layanan Ollama biasa. |
+| `ROBOT_WAKE_THRESHOLD` | `0.45` | Makin rendah makin peka, tetapi makin sering terpicu tanpa sengaja. |
+| `ROBOT_STT_MODEL` | `small` | Model Faster-Whisper, misalnya `base` atau `medium`. Launcher mengunduhnya ke `models/whisper/` saat dijalankan berikutnya. |
+| `ROBOT_STT_LANGUAGE` | `auto` | `id` atau `en` untuk memaksa satu bahasa pengenalan suara. Hanya berpengaruh saat tombol bahasa berada di **Auto**. |
+| `ROBOT_TTS_ENGINE` | `piper` | Mesin suara bahasa Inggris. `kokoro` terdengar lebih alami, tetapi sekitar 10 kali lebih lambat. Suara bahasa Indonesia selalu memakai Piper. |
+| `ROBOT_TTS_VOICE` | `af_heart` | Suara Kokoro, misalnya `af_bella` atau `af_sarah`. Hanya dipakai dengan `ROBOT_TTS_ENGINE=kokoro`. |
+
+### File pengaturan lokal
+
+File berikut dibuat otomatis di folder proyek dan tidak masuk Git. Hapus salah satunya untuk mengembalikan bagian itu ke awal.
+
+| File | Isi |
+| --- | --- |
+| `device_settings.json` | Pilihan mikrofon dan kamera. |
+| `language_setting.json` | Mode bahasa: `id`, `en`, atau `auto`. |
+| `memory.json` | Riwayat percakapan. |
+| `.setup_complete` | Penanda bahwa paket Python sudah terpasang. Kalau dihapus, launcher memasang ulang paketnya. |
 
 ## The companion interface
 
@@ -72,17 +123,7 @@ The interface uses a local server bound to `127.0.0.1` and bundled assets. No ex
 
 Kokoro and Qwen3 4B Instruct have Apache-licensed weights; Faster-Whisper is MIT-licensed. Piper voice licensing follows its linked model card and source dataset. There are no paid AI APIs or API keys. The optional public weather service and search provider still require internet access. Voice quality and recognition accuracy depend on the microphone, accent and room; these local models do not guarantee parity with Google's hosted speech services.
 
-Optional settings can be set before launching:
-
-| Environment variable | Default | Purpose |
-| --- | --- | --- |
-| `ROBOT_STT_LANGUAGE` | `auto` | Automatically recognize English/Indonesian; set `en` or `id` to force one language. |
-| `ROBOT_STT_MODEL` | `small` | Faster-Whisper model name; rerun speech setup after changing it. |
-| `ROBOT_TTS_ENGINE` | `piper` | English speech engine; set `kokoro` for a more natural but slower voice. |
-| `ROBOT_TTS_VOICE` | `af_heart` | Kokoro female voice, e.g. `af_bella` or `af_sarah`; used only with `ROBOT_TTS_ENGINE=kokoro`. |
-| `ROBOT_LLM_MODEL` | `qwen3:1.7b` | Ollama chat model; the launcher downloads it if missing. `qwen3:4b-instruct-2507-q4_K_M` gives better answers but responds more slowly. |
-| `ROBOT_USE_IGPU` | `1` | Set `0` to use the regular CPU Ollama service instead of the integrated GPU. |
-| `ROBOT_WAKE_THRESHOLD` | `0.45` | Lower is more sensitive and may trigger more false wakes. |
+Optional settings are listed under [Konfigurasi](#konfigurasi).
 
 To inspect the design without loading speech models, opening a microphone, or connecting to Ollama:
 
